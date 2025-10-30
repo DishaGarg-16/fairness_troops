@@ -1,7 +1,7 @@
 # tests/test_metrics.py
 import pandas as pd
 import pytest
-from bias_debugger import metrics
+from fairness_troops import metrics
 
 @pytest.fixture
 def sample_data_perfect_fairness():
