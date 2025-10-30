@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/bias_debugger/__init__.py
+src/bias_debugger/core.py
+src/bias_debugger/metrics.py
+src/bias_debugger/mitigation.py
+src/fairness_troops.egg-info/PKG-INFO
+src/fairness_troops.egg-info/SOURCES.txt
+src/fairness_troops.egg-info/dependency_links.txt
+src/fairness_troops.egg-info/requires.txt
+src/fairness_troops.egg-info/top_level.txt
+tests/test_metrics.py

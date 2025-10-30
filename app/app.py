@@ -7,7 +7,7 @@ from io import BytesIO
 # We can import directly from bias_debugger because we will
 # install our package in editable mode.
 try:
-    from bias_debugger import BiasAuditor
+    from fairness_troops import BiasAuditor
 except ImportError:
     st.error(
         "Could not import BiasAuditor. "

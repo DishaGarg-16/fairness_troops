@@ -1,0 +1,49 @@
+Metadata-Version: 2.4
+Name: fairness-troops
+Version: 0.1.0
+Summary: A toolkit to audit and mitigate bias in ML models.
+Author-email: Disha Garg <garg.16.disha@email.com>
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: matplotlib>=3.10.6
+Requires-Dist: numpy>=2.3.3
+Requires-Dist: pandas>=2.3.2
+Requires-Dist: pytest>=8.4.2
+Requires-Dist: scikit-learn>=1.7.2
+Requires-Dist: seaborn>=0.13.2
+Requires-Dist: streamlit>=1.50.0
+
+# 🚀 Bias & Fairness Debugger
+
+A plug-and-play Python toolkit and Streamlit dashboard to audit trained ML models for hidden biases and suggest mitigation strategies.
+
+## The Problem
+
+Companies deploying ML models for lending, hiring, or healthcare face significant legal and PR risks from biased models. This tool provides a simple "health check" for a trained model to identify and visualize these biases *before* deployment.
+
+## Features
+
+* **Audit Metrics**: Calculates key fairness metrics like:
+    * **Disparate Impact Ratio (DI)**
+    * **Equal Opportunity Difference (EOD)**
+* **Executive-Ready Visuals**: Generates simple bar charts to visualize disparities in outcomes and true positive rates.
+* **Actionable Mitigation**: Suggests pre-processing mitigation strategies, starting with **Reweighting**, and provides a downloadable weights file.
+* **Plug-and-Play**: Works with any `scikit-learn`-compatible model (`.joblib` or `.pkl`).
+
+## Tech Stack
+
+* **Python Package**: `pandas`, `scikit-learn`, `matplotlib`, `seaborn`
+* **Web Dashboard**: `streamlit`
+* **Packaging**: `uv`, `setuptools`, `pyproject.toml`
+* **Testing**: `pytest`
+
+---
+
+## 🚀 How to Run
+
+### 1. Setup
+
+**Clone the repository:**
+```bash
+git clone [https://github.com/yourusername/bias-fairness-debugger.git](https://github.com/yourusername/bias-fairness-debugger.git)
+cd bias-fairness-debugger
