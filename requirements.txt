@@ -1,0 +1,11 @@
+# External libraries
+streamlit
+pandas
+scikit-learn
+joblib
+matplotlib
+numpy
+pytest
+
+# Install local package (fairness_troops)
+-e .
