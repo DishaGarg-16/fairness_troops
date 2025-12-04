@@ -1,6 +1,7 @@
 # 🚀 Bias & Fairness Debugger
 
 A plug-and-play Python toolkit and Streamlit dashboard to audit trained ML models for hidden biases and suggest mitigation strategies.
+Check it out here! https://fairness-troops.streamlit.app/
 
 ## The Problem
 
@@ -147,4 +148,3 @@ Ensure your code passes `pytest` and follows the existing code style conventions
 
 This project is licensed under the **MIT License**.  
 See the `LICENSE` file for details.
-```
