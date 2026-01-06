@@ -21,9 +21,10 @@ dependencies = [
     "asyncpg",
     "greenlet",
     "redis",
-    "celery[redis]",
     "fpdf",
-    "seaborn"
+    "seaborn",
+    "skops",
+    "celery[redis]"
 ]
 
 [build-system]

@@ -1,7 +1,7 @@
 # app/app.py
 import streamlit as st
 import pandas as pd
-import joblib
+import skops.io as sio
 from io import BytesIO
 
 # We can import directly from bias_debugger because we will
@@ -39,9 +39,12 @@ st.markdown(
 with st.sidebar:
     st.header("1. Upload Your Files")
     
+    st.markdown("**1. Upload trained model (.skops)**")
+    st.info("For security, we only accept `.skops` files. [Learn how to save your model](#don-t-have-files)")
     uploaded_model = st.file_uploader(
-        "Upload trained model (.joblib or .pkl)", 
-        type=["joblib", "pkl"]
+        "Drag and drop file here", 
+        type=['skops'], 
+        key="model_uploader"
     )
     uploaded_data = st.file_uploader(
         "Upload test dataset (.csv)", 
@@ -69,11 +72,15 @@ with st.sidebar:
             import os
             # Paths relative to app/app.py
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(base_dir, '..', 'data', 'adult_model.joblib')
+            # We assume the user has generated this with skops, or we will generate it on the fly if needed
+            # For now, let's point to .skops
+            model_path = os.path.join(base_dir, '..', 'data', 'adult_model.skops')
             data_path = os.path.join(base_dir, '..', 'data', 'adult_test_data.csv')
             
             # Load into session state
-            st.session_state['model'] = joblib.load(model_path)
+            # sio.load returns the model object directly when trusted=True
+            # Note: For the example we use trusted=True as we trust our own file
+            st.session_state['model'] = sio.load(model_path, trusted=True)
             st.session_state['data'] = pd.read_csv(data_path)
             
             # Set default keys in session state to pre-fill configuration
@@ -85,16 +92,19 @@ with st.sidebar:
             st.success("Adult Census Example loaded!")
             st.rerun() # Rerun to update the UI immediately
         except Exception as e:
-            st.error(f"Error loading example: {e}")
+            st.error(f"Error loading example: {e}\n(Make sure you have run the updated example generation script!)")
 
     if uploaded_model:
         try:
-            # Use BytesIO to load the model from the uploaded file
-            model_bytes = BytesIO(uploaded_model.getvalue())
-            st.session_state['model'] = joblib.load(model_bytes)
-            st.success("Model loaded successfully!")
+            # We don't load the model here in the frontend to avoid security risks on the frontend container.
+            # We just pass the bytes to the API. 
+            st.session_state['model_file'] = uploaded_model
+            # We might still want to load it into session state to unlock the "Configure Audit" UI
+            # But we can assume it's valid if uploaded.
+            st.session_state['model'] = "Uploaded Model" # Dummy value to satisfy check
+            st.success("Model ready to upload!")
         except Exception as e:
-            st.error(f"Error loading model: {e}")
+            st.error(f"Error preparing model: {e}")
             
     if uploaded_data:
         try:
@@ -194,11 +204,32 @@ if model and data is not None:
                 
                 with st.spinner(f"Running audit via {API_URL}... 🕵️"):
                     try:
-                        # Prepare files for upload
-                        # Serialize model
-                        model_buffer = BytesIO()
-                        joblib.dump(model, model_buffer)
-                        model_buffer.seek(0)
+                        # Prepare files for API
+                        # Reset pointers
+                        # We use the raw uploaded file object from session state or the uploader
+                        # If using example, we might need to serialize it?
+                        # Wait, if we use Example, st.session_state['model'] is the actual object.
+                        # We need to handle BOTH cases: Uploaded File (bytes) OR Example Object (sklearn object).
+                        
+                        model_obj = st.session_state.get('model')
+                        model_file_content = None
+                        
+                        if isinstance(model_obj, str) and model_obj == "Uploaded Model":
+                             # It was uploaded via file uploader
+                             model_file_content = st.session_state.get('model_file', uploaded_model)
+                             model_file_content.seek(0)
+                        else:
+                             # It is a loaded object (from example)
+                             # We need to serialize it to skops bytes
+                             if model_obj:
+                                 buf = BytesIO()
+                                 sio.dump(model_obj, buf)
+                                 buf.seek(0)
+                                 model_file_content = buf
+                        
+                        if model_file_content is None:
+                            st.error("No model found!")
+                            st.stop()
                         
                         # Serialize data
                         data_buffer = BytesIO()
@@ -206,7 +237,7 @@ if model and data is not None:
                         data_buffer.seek(0)
                         
                         files = {
-                            'model_file': ('model.joblib', model_buffer, 'application/octet-stream'),
+                            'model_file': ('model.skops', model_file_content, 'application/octet-stream'),
                             'data_file': ('data.csv', data_buffer, 'text/csv')
                         }
                         
@@ -234,6 +265,7 @@ if model and data is not None:
                             import time
                             
                             # Poll every 2 seconds
+                            report = None
                             while True:
                                 result_response = requests.get(f"{API_URL}/result/{task_id}")
                                 if result_response.status_code != 200:
@@ -280,10 +312,11 @@ if model and data is not None:
                                 elif state == "FAILURE":
                                     st.error(f"Task Failed: {result_data.get('error')}")
                                     break
-                            st.markdown(
-                                f"Comparing **{unprivileged_group}** (Unprivileged) "
-                                f"vs. **{privileged_group}** (Privileged)"
-                            )
+                            if report:
+                                st.markdown(
+                                    f"Comparing **{unprivileged_group}** (Unprivileged) "
+                                    f"vs. **{privileged_group}** (Privileged)"
+                                )
                             
                             # Display metrics
                             m1, m2, m3 = st.columns(3)

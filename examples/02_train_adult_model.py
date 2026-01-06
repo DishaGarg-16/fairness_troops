@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import make_column_transformer
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LogisticRegression
-import joblib
+import skops.io as sio
 import os
 
 print("Fetching Adult Census Income dataset from OpenML...")
@@ -72,8 +72,8 @@ print(f"Test Accuracy: {score:.4f}")
 # Save Model
 output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
 os.makedirs(output_dir, exist_ok=True)
-model_path = os.path.join(output_dir, 'adult_model.joblib')
-joblib.dump(model, model_path)
+model_path = os.path.join(output_dir, 'adult_model.skops')
+sio.dump(model, model_path)
 print(f"Model saved to {model_path}")
 
 # Save a sample of test data (e.g., 500 rows) for the user to download/use
