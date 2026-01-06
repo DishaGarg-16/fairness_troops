@@ -234,23 +234,48 @@ if model and data is not None:
                             )
                             
                             # Display metrics
-                            m1, m2 = st.columns(2)
-                            di_val = report.get('disparate_impact')
-                            eod_val = report.get('equal_opportunity_diff')
+                            m1, m2, m3 = st.columns(3)
                             
-                            m1.metric(
-                                label="Disparate Impact (DI)",
-                                value=f"{di_val:.3f}",
-                                help="Ratio of favorable outcomes for unprivileged vs. privileged. "
-                                     "Ideal: 1.0. Flagged if < 0.8."
-                            )
-                            
-                            m2.metric(
-                                label="Equal Opportunity Difference (EOD)",
-                                value=f"{eod_val:.3f}",
-                                help="Difference in True Positive Rates (TPR_unpriv - TPR_priv). "
-                                     "Ideal: 0.0."
-                            )
+                            with m1:
+                                st.metric(
+                                    label="Disparate Impact (DI)",
+                                    value=f"{report.get('disparate_impact', 0):.3f}",
+                                    help="Ratio of favorable outcomes for unprivileged vs. privileged. Ideal: 1.0. Flagged if < 0.8."
+                                )
+                                st.metric(
+                                    label="Statistical Parity Diff",
+                                    value=f"{report.get('statistical_parity_diff', 0):.3f}",
+                                    help="Difference in positive outcome rates. Ideal: 0."
+                                )
+                                st.metric(
+                                    label="Theil Index",
+                                    value=f"{report.get('theil_index', 0):.3f}",
+                                    help="Individual fairness metric. Lower is better (0=perfect equality)."
+                                )
+
+                            with m2:
+                                st.metric(
+                                    label="Equal Opp. Diff (EOD)",
+                                    value=f"{report.get('equal_opportunity_diff', 0):.3f}",
+                                    help="Difference in True Positive Rates. Ideal: 0.0."
+                                )
+                                st.metric(
+                                    label="Avg Abs Odds Diff",
+                                    value=f"{report.get('avg_abs_odds_diff', 0):.3f}",
+                                    help="Average of absolute difference in FPR and TPR."
+                                )
+
+                            with m3:
+                                st.metric(
+                                    label="False Positive Rate Diff",
+                                    value=f"{report.get('false_positive_rate_diff', 0):.3f}",
+                                    help="Difference in FPR (Unpriv - Priv)."
+                                )
+                                st.metric(
+                                    label="False Negative Rate Diff",
+                                    value=f"{report.get('false_negative_rate_diff', 0):.3f}",
+                                    help="Difference in FNR (Unpriv - Priv)."
+                                )
                             
                             # Display Visuals
                             # We need to reconstruct y_pred Series and sensitive_features Series

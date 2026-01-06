@@ -12,6 +12,7 @@ from .cache import get_redis_client, generate_cache_key
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from contextlib import asynccontextmanager
+from .schemas import AuditResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -65,7 +66,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         
     return health_status
 
-@app.post("/audit")
+@app.post("/audit", response_model=AuditResponse)
 async def audit_model(
     target_col: str = Form(...),
     sensitive_col: str = Form(...),

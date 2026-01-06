@@ -56,19 +56,52 @@ class BiasAuditor:
         """
         Runs all fairness metrics and returns a report dictionary.
         """
+        # Common arguments for most metrics
+        # Note: fairlearn handles privileged/unprivileged automatically if not specified, 
+        # or we might need to be specific if fairlearn needs 'pos_label' etc.
+        # But our wrapper functions in metrics.py just take series.
+        
+        # We explicitly assume self.sensitive_features aligns with self.y_true and self.y_pred
+        
         self.report['disparate_impact'] = metrics.calculate_disparate_impact(
+            self.y_true,
             self.y_pred,
-            self.sensitive_features,
-            self.privileged_group,
-            self.unprivileged_group
+            self.sensitive_features
         )
         
         self.report['equal_opportunity_diff'] = metrics.calculate_equal_opportunity_difference(
             self.y_true,
             self.y_pred,
-            self.sensitive_features,
-            self.privileged_group,
-            self.unprivileged_group
+            self.sensitive_features
+        )
+
+        self.report['avg_abs_odds_diff'] = metrics.calculate_average_abs_odds_difference(
+            self.y_true,
+            self.y_pred,
+            self.sensitive_features
+        )
+
+        self.report['theil_index'] = metrics.calculate_theil_index(
+            self.y_true,
+            self.y_pred
+        )
+
+        self.report['statistical_parity_diff'] = metrics.calculate_statistical_parity_difference(
+            self.y_true,
+            self.y_pred,
+            self.sensitive_features
+        )
+
+        self.report['false_positive_rate_diff'] = metrics.calculate_false_positive_rate_difference(
+            self.y_true,
+            self.y_pred,
+            self.sensitive_features
+        )
+
+        self.report['false_negative_rate_diff'] = metrics.calculate_false_negative_rate_difference(
+            self.y_true,
+            self.y_pred,
+            self.sensitive_features
         )
         
         return self.report
