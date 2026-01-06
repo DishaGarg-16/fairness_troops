@@ -1,18 +1,31 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import joblib
 from io import BytesIO
 from fairness_troops import BiasAuditor
 import logging
+import json
+from .database import engine, Base, get_db
+from .models import AuditLog
+from .cache import get_redis_client, generate_cache_key
+from sqlalchemy.ext.asyncio import AsyncSession
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Fairness Troops API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables on startup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
 
-# Add CORS so frontend can talk to backend (even if on different ports locally)
+app = FastAPI(title="Fairness Troops API", lifespan=lifespan)
+
+# Add CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,21 +45,39 @@ async def audit_model(
     privileged_group: str = Form(...),
     unprivileged_group: str = Form(...),
     model_file: UploadFile = File(...),
-    data_file: UploadFile = File(...)
+    data_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
 ):
     try:
         logger.info(f"Received audit request. Target: {target_col}, Sensitive: {sensitive_col}")
 
-        # Load Model
+        # Read files content once
         model_content = await model_file.read()
-        model = joblib.load(BytesIO(model_content))
-
-        # Load Data
         data_content = await data_file.read()
+
+        # Generate Cache Key
+        config = {
+            "target": target_col,
+            "sensitive": sensitive_col,
+            "priv": privileged_group,
+            "unpriv": unprivileged_group
+        }
+        cache_key = generate_cache_key(model_content, data_content, config)
+
+        # Check Redis Cache
+        redis = await get_redis_client()
+        cached_result = await redis.get(cache_key)
+        if cached_result:
+            logger.info("Cache HIT")
+            return json.loads(cached_result)
+        
+        logger.info("Cache MISS - Running computation")
+
+        # Load Model & Data
+        model = joblib.load(BytesIO(model_content))
         try:
             data = pd.read_csv(BytesIO(data_content))
         except Exception as e:
-            # Try parsing line by line if strict loading fails (rare but possible with weird CSVs)
              logger.error(f"CSV Parse Error: {e}")
              raise HTTPException(status_code=400, detail="Invalid CSV file")
 
@@ -67,20 +98,32 @@ async def audit_model(
         )
 
         report = auditor.run_audit()
-        
-        # We need to serialize the report for JSON
-        # If the report contains numpy types, we need to convert them
-        # (Current Simple implementation returns floats which are fine)
-        
-        # Return predictions so frontend can visualize them
         predictions = auditor.y_pred.tolist()
+        mitigation_weights = auditor.get_mitigation_weights().tolist()
         
-        return {
+        result_payload = {
             "status": "success",
             "metrics": report,
             "predictions": predictions,
-            "mitigation_weights": auditor.get_mitigation_weights().tolist()
+            "mitigation_weights": mitigation_weights
         }
+
+        # Save to Redis (expire in 1 hour)
+        await redis.set(cache_key, json.dumps(result_payload), ex=3600)
+
+        # Save to Database
+        audit_log = AuditLog(
+            target_col=target_col,
+            sensitive_col=sensitive_col,
+            privileged_group=privileged_group,
+            unprivileged_group=unprivileged_group,
+            metrics_result=report,
+            input_hash=cache_key
+        )
+        db.add(audit_log)
+        await db.commit()
+
+        return result_payload
 
     except Exception as e:
         logger.error(f"Audit failed: {e}")

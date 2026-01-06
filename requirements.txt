@@ -11,6 +11,10 @@ uvicorn
 python-multipart
 fairlearn
 requests
+sqlalchemy
+asyncpg
+greenlet
+redis
 
 # Install local package (fairness_troops)
 -e .
