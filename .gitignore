@@ -10,6 +10,7 @@ venv/
 ENV/
 env/
 pip-freeze.txt
+.env
 
 # OS
 .DS_Store
