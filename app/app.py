@@ -256,7 +256,10 @@ if model and data is not None:
                                     predictions = final_result.get('predictions')
                                     mitigation_weights = final_result.get('mitigation_weights')
                                     pdf_b64 = final_result.get('pdf_report_b64')
-                                    shap_b64 = final_result.get('visuals', {}).get('shap_summary')
+                                    visuals_res = final_result.get('visuals', {})
+                                    
+                                    perm_imp_b64 = visuals_res.get('feature_importance')
+                                    pdp_b64 = visuals_res.get('pdp_plot')
                                     
                                     # PDF Download Button
                                     if pdf_b64:
@@ -270,6 +273,7 @@ if model and data is not None:
                                         )
                                     
                                     st.subheader("📊 Fairness Metrics Report")
+                                    # ... (rest of metrics display) ...
                                     # ... (rest of the metric display) ...
                                     break
                                     
@@ -359,13 +363,25 @@ if model and data is not None:
                                 )
                                 st.pyplot(fig2)
                                 
-                            # Display SHAP if available
-                            if shap_b64:
-                                st.subheader("🔍 Model Explainability (SHAP)")
-                                st.markdown("Global feature importance based on SHAP values.")
-                                import base64
-                                shap_img = base64.b64decode(shap_b64)
-                                st.image(shap_img, caption="SHAP Summary Plot", use_column_width=True)
+                            # Display Explanations
+                            st.subheader("🔍 Model Explainability")
+                            import base64
+                            
+                            c1, c2 = st.columns(2)
+                            
+                            with c1:
+                                if perm_imp_b64:
+                                    st.markdown("**Permutation Feature Importance**")
+                                    st.markdown("Shows which features most affect model performance when shuffled.")
+                                    perm_img = base64.b64decode(perm_imp_b64)
+                                    st.image(perm_img, use_column_width=True)
+                            
+                            with c2:
+                                if pdp_b64:
+                                    st.markdown(f"**Partial Dependence Plot (PDP)**")
+                                    st.markdown(f"Shows relationship between *{sensitive_col}* and predicted outcome.")
+                                    pdp_img = base64.b64decode(pdp_b64)
+                                    st.image(pdp_img, use_column_width=True)
                                 
                             # --- 4. Mitigation ---
                             st.header("4. Mitigation Suggestions")

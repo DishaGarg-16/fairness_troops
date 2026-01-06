@@ -1,57 +1,56 @@
-import shap
 import matplotlib.pyplot as plt
 import io
 import base64
 import numpy as np
 import pandas as pd
+from sklearn.inspection import permutation_importance, PartialDependenceDisplay
 
 class BiasExplainer:
     """
-    Generates global and local explanations for the model using SHAP.
+    Generates explanations for the model using Permutation Importance and PDP.
+    Replaces SHAP due to compatibility issues.
     """
-    def __init__(self, model, X_train: pd.DataFrame):
+    def __init__(self, model, X_train: pd.DataFrame, y_train: pd.Series = None):
         """
         :param model: The trained model.
-        :param X_train: Background dataset for SHAP (subset of training data).
+        :param X_train: Training features (needed for permutation importance).
+        :param y_train: Training labels (needed for scoring permutation importance), optional. 
+                        If not provided, importance is calculated based on model score only which might need labels.
+                        For simplicity in audit, we might use the test set passed as 'dataset' if y is available.
         """
         self.model = model
-        self.X_train = X_train
-        
-        # Determine explainer type
-        # For tree-based models (RandomForest, XGBoost, etc.), use TreeExplainer
-        # For linear models, LinearExplainer
-        # Fallback to KernelExplainer (slow)
-        
-        try:
-            # Simple heuristic
-            model_name = type(model).__name__.lower()
-            if 'forest' in model_name or 'xgb' in model_name or 'tree' in model_name:
-                self.explainer = shap.TreeExplainer(model)
-            elif 'linear' in model_name or 'logistic' in model_name:
-                 self.explainer = shap.LinearExplainer(model, X_train)
-            else:
-                 # Summarize background for KernelExplainer to speed up
-                 self.background = shap.kmeans(X_train, 10) if len(X_train) > 100 else X_train
-                 self.explainer = shap.KernelExplainer(model.predict, self.background)
-                 
-        except Exception as e:
-            print(f"Error initializing specific explainer, defaulting to KernelExplainer: {e}")
-            self.background = shap.kmeans(X_train, 10) if len(X_train) > 100 else X_train
-            self.explainer = shap.KernelExplainer(model.predict, self.background)
+        self.X_data = X_train
+        self.y_data = y_train
 
-    def generate_global_importance_plot(self, X_sample) -> str:
+    def generate_permutation_importance_plot(self) -> str:
         """
-        Generates a SHAP summary plot as a base64 encoded image.
+        Generates a Permutation Feature Importance plot.
         """
         try:
-            shap_values = self.explainer.shap_values(X_sample)
+            # Calculate permutation importance
+            # Note: We need y_true to calculate importance based on accuracy/score drop.
+            # If y_data is not provided, we can't strictly calculate "importance" defined as drop in score
+            # unless the model has an unsupervised score method (unlikely).
+            # Assuming y_data is passed or we default to the model's predict behavior if compatible? 
+            # Actually sklearn permutation_importance REQUIRES y.
             
-            # Handle list of shap values (e.g., for classification outputs)
-            if isinstance(shap_values, list):
-                shap_values = shap_values[1] # Take positive class
-                
-            plt.figure()
-            shap.summary_plot(shap_values, X_sample, show=False)
+            if self.y_data is None:
+                return ""
+
+            result = permutation_importance(
+                self.model, self.X_data, self.y_data, n_repeats=10, random_state=42, n_jobs=-1
+            )
+            
+            sorted_idx = result.importances_mean.argsort()
+            
+            plt.figure(figsize=(10, 6))
+            plt.boxplot(
+                result.importances[sorted_idx].T,
+                vert=False,
+                labels=self.X_data.columns[sorted_idx]
+            )
+            plt.title("Permutation Importances (test set)")
+            plt.tight_layout()
             
             buf = io.BytesIO()
             plt.savefig(buf, format='png', bbox_inches='tight')
@@ -60,18 +59,36 @@ class BiasExplainer:
             return base64.b64encode(buf.read()).decode('utf-8')
             
         except Exception as e:
-            print(f"Error generating global plot: {e}")
+            print(f"Error generating permutation importance plot: {e}")
             return ""
 
-    def get_shap_values(self, X_sample):
+    def generate_pdp_plot(self, features: list) -> str:
         """
-        Returns raw SHAP values for further processing/reporting.
+        Generates Partial Dependence Plots for top features.
+        :param features: List of feature names or indices to plot.
         """
         try:
-            shap_values = self.explainer.shap_values(X_sample)
-            if isinstance(shap_values, list):
-                shap_values = shap_values[1]
-            return shap_values
+            # We assume features are valid column names or indices
+            # Limit to top 3 to avoid overcrowding
+            features_to_plot = features[:3]
+            
+            fig, ax = plt.subplots(figsize=(12, 4))
+            PartialDependenceDisplay.from_estimator(
+                self.model, 
+                self.X_data, 
+                features_to_plot,
+                ax=ax,
+                kind='average'
+            )
+            plt.suptitle(f"Partial Dependence Plot for {features_to_plot}", y=1.02)
+            plt.tight_layout()
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close()
+            buf.seek(0)
+            return base64.b64encode(buf.read()).decode('utf-8')
+
         except Exception as e:
-             print(f"Error calcuating SHAP values: {e}")
-             return None
+            print(f"Error generating PDP plot: {e}")
+            return ""

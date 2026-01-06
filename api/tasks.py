@@ -37,14 +37,28 @@ def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
         predictions = auditor.y_pred.tolist()
         mitigation_weights = auditor.get_mitigation_weights().tolist()
 
-        # 2. Generate SHAP Explanations
-        self.update_state(state='PROGRESS', meta={'message': 'Generating SHAP explanations (this may take a while)...'})
-        # Use a sample for SHAP to speed up explainability (e.g. 100 samples)
-        X_test = data.drop(columns=[target_col])
-        X_sample = X_test.sample(min(100, len(X_test)))
+        # 2. Generate Explanations (Permutation Importance & PDP)
+        self.update_state(state='PROGRESS', meta={'message': 'Generating explanations (Permutation & PDP)...'})
         
-        explainer = BiasExplainer(model, X_test.head(min(50, len(X_test)))) # Use small background
-        shap_plot_b64 = explainer.generate_global_importance_plot(X_sample)
+        # Prepare data for explanation
+        # Ideally we use a held-out set, but here we use the audit dataset (acting as test set)
+        X_test = data.drop(columns=[target_col])
+        y_test = data[target_col]
+        
+        # Initialize Explainer
+        explainer = BiasExplainer(model, X_test, y_test)
+        
+        # Generate Permutation Importance
+        perm_importance_b64 = explainer.generate_permutation_importance_plot()
+        
+        # Generate PDP for Sensitive Column and maybe top 2 others (if we calculated top features)
+        # For simplicity, let's just plot the sensitive column and the first column to show usage
+        pdp_features = [sensitive_col]
+        if len(X_test.columns) > 1:
+            other_feat = [c for c in X_test.columns if c != sensitive_col][0]
+            pdp_features.append(other_feat)
+            
+        pdp_plot_b64 = explainer.generate_pdp_plot(pdp_features)
         
         # 3. Generate Visuals (Standard Fairness Plots)
         self.update_state(state='PROGRESS', meta={'message': 'Generating fairness plots...'})
@@ -58,9 +72,11 @@ def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
             buf.seek(0)
             visual_b64s[name] = base64.b64encode(buf.read()).decode('utf-8')
         
-        # Add SHAP to visuals
-        if shap_plot_b64:
-            visual_b64s['shap_summary'] = shap_plot_b64
+        # Add Explanations to visuals
+        if perm_importance_b64:
+            visual_b64s['feature_importance'] = perm_importance_b64
+        if pdp_plot_b64:
+            visual_b64s['pdp_plot'] = pdp_plot_b64
 
         # 4. Generate PDF Report
         self.update_state(state='PROGRESS', meta={'message': 'Generating PDF report...'})

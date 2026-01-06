@@ -138,4 +138,3 @@ async def get_audit_result(task_id: str):
         }
         
     return {"task_id": task_id, "state": task_result.state}
-```
