@@ -70,7 +70,35 @@ streamlit run app/app.py
 
 This will open the Bias & Fairness Debugger in your web browser.
 
+
 ---
+
+## 🐳 Docker Support
+
+You can also run the application effortlessly using Docker.
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/products/docker-desktop) installed on your machine.
+
+### Quick Start with Docker Compose
+
+1. **Build and Run:**
+   ```bash
+   docker compose up --build
+   ```
+
+2. **Access the Dashboard:**
+   Open [http://localhost:8501](http://localhost:8501) in your browser.
+
+3. **Stop the Application:**
+   Press `Ctrl+C` in the terminal or run:
+   ```bash
+   docker compose down
+   ```
+
+---
+
 
 ## 🕹️ Using the Dashboard
 
