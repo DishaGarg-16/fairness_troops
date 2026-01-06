@@ -6,6 +6,11 @@ joblib
 matplotlib
 numpy
 pytest
+fastapi
+uvicorn
+python-multipart
+fairlearn
+requests
 
 # Install local package (fairness_troops)
 -e .

@@ -187,82 +187,131 @@ if model and data is not None:
             st.header("3. Run Audit")
             if st.button("Run Fairness Audit", type="primary"):
                 
-                with st.spinner("Running audit... 🕵️"):
+                import requests
+                import os
+                
+                API_URL = os.getenv("API_URL", "http://localhost:8000")
+                
+                with st.spinner(f"Running audit via {API_URL}... 🕵️"):
                     try:
-                        # Initialize the auditor
-                        auditor = BiasAuditor(
-                            model=model,
-                            dataset=data,
-                            target_col=target_col,
-                            sensitive_col=sensitive_col,
-                            privileged_group=privileged_group,
-                            unprivileged_group=unprivileged_group
-                        )
+                        # Prepare files for upload
+                        # Serialize model
+                        model_buffer = BytesIO()
+                        joblib.dump(model, model_buffer)
+                        model_buffer.seek(0)
                         
-                        # Run calculations
-                        report = auditor.run_audit()
-                        visuals = auditor.get_visuals()
+                        # Serialize data
+                        data_buffer = BytesIO()
+                        data.to_csv(data_buffer, index=False)
+                        data_buffer.seek(0)
                         
-                        st.subheader("📊 Fairness Metrics Report")
-                        st.markdown(
-                            f"Comparing **{unprivileged_group}** (Unprivileged) "
-                            f"vs. **{privileged_group}** (Privileged)"
-                        )
+                        files = {
+                            'model_file': ('model.joblib', model_buffer, 'application/octet-stream'),
+                            'data_file': ('data.csv', data_buffer, 'text/csv')
+                        }
                         
-                        # Display metrics
-                        m1, m2 = st.columns(2)
-                        di_val = report.get('disparate_impact')
-                        eod_val = report.get('equal_opportunity_diff')
+                        payload = {
+                            'target_col': target_col,
+                            'sensitive_col': sensitive_col,
+                            'privileged_group': str(privileged_group),
+                            'unprivileged_group': str(unprivileged_group)
+                        }
                         
-                        m1.metric(
-                            label="Disparate Impact (DI)",
-                            value=f"{di_val:.3f}",
-                            help="Ratio of favorable outcomes for unprivileged vs. privileged. "
-                                 "Ideal: 1.0. Flagged if < 0.8."
-                        )
+                        response = requests.post(f"{API_URL}/audit", files=files, data=payload)
                         
-                        m2.metric(
-                            label="Equal Opportunity Difference (EOD)",
-                            value=f"{eod_val:.3f}",
-                            help="Difference in True Positive Rates (TPR_unpriv - TPR_priv). "
-                                 "Ideal: 0.0."
-                        )
-                        
-                        # Display Visuals
-                        st.subheader("Visual Analysis")
-                        v1, v2 = st.columns(2)
-                        with v1:
-                            st.pyplot(visuals.get('group_outcomes'))
-                        with v2:
-                            st.pyplot(visuals.get('tpr_by_group'))
+                        if response.status_code != 200:
+                            st.error(f"API Error: {response.text}")
+                        else:
+                            result = response.json()
+                            report = result.get('metrics')
+                            predictions = result.get('predictions')
+                            mitigation_weights = result.get('mitigation_weights')
                             
-                        # --- 4. Mitigation ---
-                        st.header("4. Mitigation Suggestions")
-                        st.subheader("Pre-processing: Reweighting")
-                        st.markdown(
-                            "You can retrain your model using these `sample_weight` values "
-                            "to mitigate bias. This technique gives more weight to "
-                            "under-represented groups and outcomes."
-                        )
-                        
-                        weights = auditor.get_mitigation_weights()
-                        
-                        # Add weights to the original dataframe for context
-                        data_with_weights = data.copy()
-                        data_with_weights['sample_weight'] = weights
-                        
-                        st.dataframe(data_with_weights.head())
-                        
-                        st.download_button(
-                            label="Download All Sample Weights as CSV",
-                            data=convert_df_to_csv(data_with_weights),
-                            file_name="data_with_sample_weights.csv",
-                            mime="text/csv",
-                        )
+                            st.subheader("📊 Fairness Metrics Report")
+                            st.markdown(
+                                f"Comparing **{unprivileged_group}** (Unprivileged) "
+                                f"vs. **{privileged_group}** (Privileged)"
+                            )
+                            
+                            # Display metrics
+                            m1, m2 = st.columns(2)
+                            di_val = report.get('disparate_impact')
+                            eod_val = report.get('equal_opportunity_diff')
+                            
+                            m1.metric(
+                                label="Disparate Impact (DI)",
+                                value=f"{di_val:.3f}",
+                                help="Ratio of favorable outcomes for unprivileged vs. privileged. "
+                                     "Ideal: 1.0. Flagged if < 0.8."
+                            )
+                            
+                            m2.metric(
+                                label="Equal Opportunity Difference (EOD)",
+                                value=f"{eod_val:.3f}",
+                                help="Difference in True Positive Rates (TPR_unpriv - TPR_priv). "
+                                     "Ideal: 0.0."
+                            )
+                            
+                            # Display Visuals
+                            # We need to reconstruct y_pred Series and sensitive_features Series
+                            # to use the local visuals library
+                            from fairness_troops import visuals
+                            
+                            # Reconstruct y_pred
+                            y_pred_series = pd.Series(
+                                predictions, 
+                                index=data.index, 
+                                name="predictions"
+                            )
+                            
+                            # Reconstruct y_true and sensitive_features
+                            y_true = data[target_col]
+                            sensitive_features = data[sensitive_col]
+                            
+                            st.subheader("Visual Analysis")
+                            v1, v2 = st.columns(2)
+                            with v1:
+                                fig1 = visuals.plot_group_outcomes(
+                                    y_pred_series,
+                                    sensitive_features,
+                                    title=f"Favorable Outcome Rate ({target_col}=1)"
+                                )
+                                st.pyplot(fig1)
+                            with v2:
+                                fig2 = visuals.plot_tpr_by_group(
+                                    y_true,
+                                    y_pred_series,
+                                    sensitive_features,
+                                    title=f"True Positive Rate by {sensitive_col}"
+                                )
+                                st.pyplot(fig2)
+                                
+                            # --- 4. Mitigation ---
+                            st.header("4. Mitigation Suggestions")
+                            st.subheader("Pre-processing: Reweighting")
+                            st.markdown(
+                                "You can retrain your model using these `sample_weight` values "
+                                "to mitigate bias. This technique gives more weight to "
+                                "under-represented groups and outcomes."
+                            )
+                            
+                            # Add weights to the original dataframe for context
+                            data_with_weights = data.copy()
+                            data_with_weights['sample_weight'] = mitigation_weights
+                            
+                            st.dataframe(data_with_weights.head())
+                            
+                            st.download_button(
+                                label="Download All Sample Weights as CSV",
+                                data=convert_df_to_csv(data_with_weights),
+                                file_name="data_with_sample_weights.csv",
+                                mime="text/csv",
+                            )
                         
                     except Exception as e:
                         st.error(f"An error occurred during the audit: {e}")
-                        st.exception(e)  # Print full traceback
+                        import traceback
+                        st.text(traceback.format_exc())
 
 else:
     st.info(
