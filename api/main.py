@@ -10,6 +10,7 @@ from .database import engine, Base, get_db
 from .models import AuditLog
 from .cache import get_redis_client, generate_cache_key
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 from contextlib import asynccontextmanager
 
 # Configure logging
@@ -37,6 +38,32 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Fairness Troops API"}
+
+@app.get("/health")
+async def health_check(db: AsyncSession = Depends(get_db)):
+    health_status = {"status": "healthy", "postgres": "unknown", "redis": "unknown"}
+    
+    # Check Postgres
+    try:
+        await db.execute(text("SELECT 1"))
+        health_status["postgres"] = "connected"
+    except Exception as e:
+        health_status["postgres"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    # Check Redis
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+        health_status["redis"] = "connected"
+    except Exception as e:
+        health_status["redis"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+
+    if health_status["status"] == "unhealthy":
+        raise HTTPException(status_code=503, detail=health_status)
+        
+    return health_status
 
 @app.post("/audit")
 async def audit_model(
