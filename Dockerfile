@@ -8,9 +8,17 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-RUN pip3 install -r requirements.txt
+# Copy requirements first to leverage caching
+COPY requirements.txt .
+
+# Install dependencies using uv
+RUN uv pip install --system -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
 
 EXPOSE 8501
 
