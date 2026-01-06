@@ -222,12 +222,60 @@ if model and data is not None:
                         if response.status_code != 200:
                             st.error(f"API Error: {response.text}")
                         else:
-                            result = response.json()
-                            report = result.get('metrics')
-                            predictions = result.get('predictions')
-                            mitigation_weights = result.get('mitigation_weights')
+                            # START ASYNC POLLING
+                            task_info = response.json()
+                            task_id = task_info.get("task_id")
                             
-                            st.subheader("📊 Fairness Metrics Report")
+                            if not task_id:
+                                st.error("Failed to get task ID from API.")
+                                st.stop()
+                                
+                            status_placeholder = st.empty()
+                            import time
+                            
+                            # Poll every 2 seconds
+                            while True:
+                                result_response = requests.get(f"{API_URL}/result/{task_id}")
+                                if result_response.status_code != 200:
+                                    st.error("Error checking task status.")
+                                    break
+                                
+                                result_data = result_response.json()
+                                state = result_data.get("state")
+                                status_msg = result_data.get("status", "Processing...")
+                                
+                                if state in ["PENDING", "PROGRESS", "STARTED"]:
+                                    status_placeholder.info(f"Status: {status_msg}")
+                                    time.sleep(2)
+                                    
+                                elif state == "SUCCESS":
+                                    status_placeholder.success("Audit Complete!")
+                                    final_result = result_data.get("result")
+                                    
+                                    report = final_result.get('metrics')
+                                    predictions = final_result.get('predictions')
+                                    mitigation_weights = final_result.get('mitigation_weights')
+                                    pdf_b64 = final_result.get('pdf_report_b64')
+                                    shap_b64 = final_result.get('visuals', {}).get('shap_summary')
+                                    
+                                    # PDF Download Button
+                                    if pdf_b64:
+                                        import base64
+                                        pdf_bytes = base64.b64decode(pdf_b64)
+                                        st.download_button(
+                                            label="📄 Download PDF Report",
+                                            data=pdf_bytes,
+                                            file_name="fairness_audit_report.pdf",
+                                            mime="application/pdf"
+                                        )
+                                    
+                                    st.subheader("📊 Fairness Metrics Report")
+                                    # ... (rest of the metric display) ...
+                                    break
+                                    
+                                elif state == "FAILURE":
+                                    st.error(f"Task Failed: {result_data.get('error')}")
+                                    break
                             st.markdown(
                                 f"Comparing **{unprivileged_group}** (Unprivileged) "
                                 f"vs. **{privileged_group}** (Privileged)"
@@ -310,6 +358,14 @@ if model and data is not None:
                                     title=f"True Positive Rate by {sensitive_col}"
                                 )
                                 st.pyplot(fig2)
+                                
+                            # Display SHAP if available
+                            if shap_b64:
+                                st.subheader("🔍 Model Explainability (SHAP)")
+                                st.markdown("Global feature importance based on SHAP values.")
+                                import base64
+                                shap_img = base64.b64decode(shap_b64)
+                                st.image(shap_img, caption="SHAP Summary Plot", use_column_width=True)
                                 
                             # --- 4. Mitigation ---
                             st.header("4. Mitigation Suggestions")

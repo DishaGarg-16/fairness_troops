@@ -12,13 +12,19 @@ RUN apt-get update && apt-get install -y \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy requirements first to leverage caching
-COPY requirements.txt .
+# Copy project definition
+COPY pyproject.toml .
 
 # Install dependencies using uv
-RUN uv pip install --system -r requirements.txt
+# --system: install into system python
+# --all-extras: install optional dependencies if any (we have celery[redis] in basics though)
+RUN uv pip install --system -r pyproject.toml
 
 # Copy the rest of the application
 COPY . .
+
+# Install the project itself
+RUN uv pip install --system -e .
 
 EXPOSE 8501
 

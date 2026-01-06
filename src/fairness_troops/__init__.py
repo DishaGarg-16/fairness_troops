@@ -4,4 +4,7 @@
 # from bias_debugger import BiasAuditor
 # instead of:
 # from bias_debugger.core import BiasAuditor
+from .mitigation import get_reweighting_weights
+from .explainability import BiasExplainer
+from .reporting import ReportGenerator
 from .core import BiasAuditor

@@ -40,6 +40,27 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A api.celery_service worker --loglevel=info
+    # We need a small trick here: Celery needs the 'api' package to be importable.
+    # We mount the volume same as backend.
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      # If using matplotlib in worker (for plots), ensure backend is non-interactive
+      - MPLBACKEND=Agg 
+    depends_on:
+      - redis
+      - db
+
   frontend:
     build: 
       context: .

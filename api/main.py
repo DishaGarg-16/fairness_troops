@@ -6,13 +6,16 @@ from io import BytesIO
 from fairness_troops import BiasAuditor
 import logging
 import json
+import base64
 from .database import engine, Base, get_db
 from .models import AuditLog
 from .cache import get_redis_client, generate_cache_key
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from contextlib import asynccontextmanager
-from .schemas import AuditResponse
+from .schemas import AuditResponse, FairnessMetrics
+from .tasks import run_audit_task
+from celery.result import AsyncResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,95 +69,73 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         
     return health_status
 
-@app.post("/audit", response_model=AuditResponse)
-async def audit_model(
+@app.post("/audit")
+async def start_audit_task(
     target_col: str = Form(...),
     sensitive_col: str = Form(...),
     privileged_group: str = Form(...),
     unprivileged_group: str = Form(...),
     model_file: UploadFile = File(...),
     data_file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
 ):
     try:
         logger.info(f"Received audit request. Target: {target_col}, Sensitive: {sensitive_col}")
 
-        # Read files content once
+        # Read files content
         model_content = await model_file.read()
         data_content = await data_file.read()
+        
+        # Encode for Celery
+        model_b64 = base64.b64encode(model_content).decode('utf-8')
+        # We assume data is text (CSV), but let's carefully handle encoding if bytes
+        # data_content is bytes. pandas.read_csv accepts bytesio
+        # But we need to pass a string to Celery ideally or b64 encoded bytes
+        data_str = data_content.decode('utf-8')
 
-        # Generate Cache Key
         config = {
-            "target": target_col,
-            "sensitive": sensitive_col,
-            "priv": privileged_group,
-            "unpriv": unprivileged_group
+            "target_col": target_col,
+            "sensitive_col": sensitive_col,
+            "privileged_group": privileged_group,
+            "unprivileged_group": unprivileged_group
         }
-        cache_key = generate_cache_key(model_content, data_content, config)
-
-        # Check Redis Cache
-        redis = await get_redis_client()
-        cached_result = await redis.get(cache_key)
-        if cached_result:
-            logger.info("Cache HIT")
-            return json.loads(cached_result)
         
-        logger.info("Cache MISS - Running computation")
-
-        # Load Model & Data
-        model = joblib.load(BytesIO(model_content))
-        try:
-            data = pd.read_csv(BytesIO(data_content))
-        except Exception as e:
-             logger.error(f"CSV Parse Error: {e}")
-             raise HTTPException(status_code=400, detail="Invalid CSV file")
-
-        # Basic validation
-        if target_col not in data.columns:
-             raise HTTPException(status_code=400, detail=f"Target column '{target_col}' not found in dataset")
-        if sensitive_col not in data.columns:
-             raise HTTPException(status_code=400, detail=f"Sensitive column '{sensitive_col}' not found in dataset")
-
-        # Run Audit
-        auditor = BiasAuditor(
-            model=model,
-            dataset=data,
-            target_col=target_col,
-            sensitive_col=sensitive_col,
-            privileged_group=privileged_group,
-            unprivileged_group=unprivileged_group
-        )
-
-        report = auditor.run_audit()
-        predictions = auditor.y_pred.tolist()
-        mitigation_weights = auditor.get_mitigation_weights().tolist()
+        # Start Celery Task
+        task = run_audit_task.delay(model_b64, data_str, config)
         
-        result_payload = {
-            "status": "success",
-            "metrics": report,
-            "predictions": predictions,
-            "mitigation_weights": mitigation_weights
-        }
-
-        # Save to Redis (expire in 1 hour)
-        await redis.set(cache_key, json.dumps(result_payload), ex=3600)
-
-        # Save to Database
-        audit_log = AuditLog(
-            target_col=target_col,
-            sensitive_col=sensitive_col,
-            privileged_group=privileged_group,
-            unprivileged_group=unprivileged_group,
-            metrics_result=report,
-            input_hash=cache_key
-        )
-        db.add(audit_log)
-        await db.commit()
-
-        return result_payload
+        return {"task_id": task.id, "status": "processing"}
 
     except Exception as e:
-        logger.error(f"Audit failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Audit initiation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/result/{task_id}")
+async def get_audit_result(task_id: str):
+    task_result = AsyncResult(task_id)
+    
+    if task_result.state == 'PENDING':
+        return {"task_id": task_id, "state": "PENDING", "status": "Pending..."}
+    
+    elif task_result.state == 'PROGRESS':
+        return {
+            "task_id": task_id, 
+            "state": "PROGRESS", 
+            "status": task_result.info.get('message', 'Processing...')
+        }
+    
+    elif task_result.state == 'SUCCESS':
+        # Result is the dict returned by run_audit_task
+        return {
+            "task_id": task_id, 
+            "state": "SUCCESS", 
+            "result": task_result.result
+        }
+        
+    elif task_result.state == 'FAILURE':
+        return {
+            "task_id": task_id, 
+            "state": "FAILURE", 
+            "error": str(task_result.info)
+        }
+        
+    return {"task_id": task_id, "state": task_result.state}
+```
