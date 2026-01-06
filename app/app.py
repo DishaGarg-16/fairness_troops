@@ -49,24 +49,64 @@ with st.sidebar:
     )
     
     # Placeholders for configuration
-    model = None
-    data = None
-    
+    # --- Initialize Session State for Model/Data if not present ---
+    if 'model' not in st.session_state:
+        st.session_state['model'] = None
+    if 'data' not in st.session_state:
+        st.session_state['data'] = None
+
+    # Helpers to clean state when new files are uploaded
+    def clear_example_state():
+        st.session_state['model'] = None
+        st.session_state['data'] = None
+        # reset config keys if needed, or let them stay
+
+    # --- Load Example Data Button ---
+    st.markdown("---")
+    st.subheader("Or Try an Example")
+    if st.button("Load Adult Census Example"):
+        try:
+            import os
+            # Paths relative to app/app.py
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(base_dir, '..', 'data', 'adult_model.joblib')
+            data_path = os.path.join(base_dir, '..', 'data', 'adult_test_data.csv')
+            
+            # Load into session state
+            st.session_state['model'] = joblib.load(model_path)
+            st.session_state['data'] = pd.read_csv(data_path)
+            
+            # Set default keys in session state to pre-fill configuration
+            st.session_state['target_col'] = 'income'
+            st.session_state['sensitive_col'] = 'sex'
+            st.session_state['privileged_group'] = 'Male'
+            st.session_state['unprivileged_group'] = 'Female'
+            
+            st.success("Adult Census Example loaded!")
+            st.rerun() # Rerun to update the UI immediately
+        except Exception as e:
+            st.error(f"Error loading example: {e}")
+
     if uploaded_model:
         try:
             # Use BytesIO to load the model from the uploaded file
             model_bytes = BytesIO(uploaded_model.getvalue())
-            model = joblib.load(model_bytes)
+            st.session_state['model'] = joblib.load(model_bytes)
             st.success("Model loaded successfully!")
         except Exception as e:
             st.error(f"Error loading model: {e}")
             
     if uploaded_data:
         try:
-            data = pd.read_csv(uploaded_data)
+            st.session_state['data'] = pd.read_csv(uploaded_data)
             st.success("Data loaded successfully!")
         except Exception as e:
             st.error(f"Error loading data: {e}")
+
+    # Assign local variables from session state for use in main page
+    model = st.session_state['model']
+    data = st.session_state['data']
+
 
 # --- Main Page ---
 if model and data is not None:
@@ -79,15 +119,26 @@ if model and data is not None:
     col1, col2 = st.columns(2)
     
     with col1:
+        target_default_idx = 0
+        if 'target_col' in st.session_state and st.session_state['target_col'] in all_columns:
+            target_default_idx = all_columns.index(st.session_state['target_col'])
+
         target_col = st.selectbox(
             "Select Target Variable (e.g., 'loan_approved')", 
-            all_columns
+            all_columns,
+            index=target_default_idx
         )
         
     with col2:
+        sensitive_options = [col for col in all_columns if col != target_col]
+        sensitive_default_idx = 0
+        if 'sensitive_col' in st.session_state and st.session_state['sensitive_col'] in sensitive_options:
+            sensitive_default_idx = sensitive_options.index(st.session_state['sensitive_col'])
+
         sensitive_col = st.selectbox(
             "Select Sensitive Attribute (e.g., 'gender')",
-            [col for col in all_columns if col != target_col]
+            sensitive_options,
+            index=sensitive_default_idx
         )
         
     # Get unique values for the selected sensitive column
@@ -99,16 +150,37 @@ if model and data is not None:
         else:
             col1, col2 = st.columns(2)
             with col1:
+                priv_default_idx = 0
+                if 'privileged_group' in st.session_state and st.session_state['privileged_group'] in unique_groups:
+                    # unique_groups is a numpy array, need to handle index carefully or convert to list
+                    # It's safer to rely on automatic matching or explicit index finding if unique_groups is list-like
+                    pass 
+                    # Simpler to just let user select or rely on default logic we implemented.
+                    # Actually, let's try to set it if possible:
+                    try:
+                         # unique_groups might be numpy array
+                         priv_default_idx = list(unique_groups).index(st.session_state['privileged_group'])
+                    except ValueError:
+                        pass
+
                 privileged_group = st.selectbox(
                     "Select Privileged Group",
                     unique_groups,
-                    index=0
+                    index=priv_default_idx
                 )
             with col2:
+                unpriv_options = [g for g in unique_groups if g != privileged_group]
+                unpriv_default_idx = 0
+                if 'unprivileged_group' in st.session_state and st.session_state['unprivileged_group'] in unpriv_options:
+                     try:
+                         unpriv_default_idx = unpriv_options.index(st.session_state['unprivileged_group'])
+                     except ValueError:
+                         pass
+
                 unprivileged_group = st.selectbox(
                     "Select Unprivileged Group",
-                    [g for g in unique_groups if g != privileged_group],
-                    index=0
+                    unpriv_options,
+                    index=unpriv_default_idx
                 )
 
             # --- 3. Run Audit ---
