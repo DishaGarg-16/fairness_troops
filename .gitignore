@@ -24,4 +24,8 @@ Thumbs.db
 *.csv
 *.pkl
 *.joblib
+!data/adult_test_data.csv
+!data/sample_loan_data.csv
+!data/adult_model.skops
+!data/sample_model.skops
 uv.lock

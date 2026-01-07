@@ -4,14 +4,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import make_column_transformer
 from sklearn.pipeline import make_pipeline
-import joblib
+import skops.io as sio
 import os
 
 print("Training sample model...")
 
 # Define file paths
 DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_loan_data.csv')
-MODEL_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_model.joblib')
+MODEL_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_model.skops')
 
 # Load data
 df = pd.read_csv(DATA_FILE)
@@ -40,7 +40,7 @@ model = make_pipeline(
 model.fit(X, y)
 
 # Save the model
-joblib.dump(model, MODEL_FILE)
+sio.dump(model, MODEL_FILE)
 
 print(f"Model saved to {MODEL_FILE}")
 print("You can now run the Streamlit app and upload this model and the CSV data.")

@@ -457,6 +457,6 @@ else:
             ```bash
             python examples/01_train_sample_model.py
             ```
-        3.  Upload `data/sample_model.joblib` and `data/sample_loan_data.csv`.
+        3.  Upload `data/sample_model.skops` and `data/sample_loan_data.csv`.
         """
     )
