@@ -204,116 +204,128 @@ if model and data is not None:
                 
                 API_URL = os.getenv("API_URL", "http://localhost:8000")
                 
-                with st.spinner(f"Running audit via {API_URL}... 🕵️"):
-                    try:
-                        # Prepare files for API
-                        # Reset pointers
-                        # We use the raw uploaded file object from session state or the uploader
-                        # If using example, we might need to serialize it?
-                        # Wait, if we use Example, st.session_state['model'] is the actual object.
-                        # We need to handle BOTH cases: Uploaded File (bytes) OR Example Object (sklearn object).
+                        # Variables to store results
+                        audit_success = False
+                        audit_results = None
+                        audit_error = None
+
+                        with st.spinner(f"Running audit via {API_URL}... 🕵️"):
+                            try:
+                                # Prepare files for API
+                                # Reset pointers
+                                # We use the raw uploaded file object from session state or the uploader
+                                # If using example, we might need to serialize it?
+                                # Wait, if we use Example, st.session_state['model'] is the actual object.
+                                # We need to handle BOTH cases: Uploaded File (bytes) OR Example Object (sklearn object).
+                                
+                                model_obj = st.session_state.get('model')
+                                model_file_content = None
+                                
+                                if isinstance(model_obj, str) and model_obj == "Uploaded Model":
+                                     # It was uploaded via file uploader
+                                     model_file_content = st.session_state.get('model_file', uploaded_model)
+                                     model_file_content.seek(0)
+                                else:
+                                     # It is a loaded object (from example)
+                                     # We need to serialize it to skops bytes
+                                     if model_obj:
+                                         buf = BytesIO()
+                                         sio.dump(model_obj, buf)
+                                         buf.seek(0)
+                                         model_file_content = buf
+                                
+                                if model_file_content is None:
+                                    st.error("No model found!")
+                                    st.stop()
+                                
+                                # Serialize data
+                                data_buffer = BytesIO()
+                                data.to_csv(data_buffer, index=False)
+                                data_buffer.seek(0)
+                                
+                                files = {
+                                    'model_file': ('model.skops', model_file_content, 'application/octet-stream'),
+                                    'data_file': ('data.csv', data_buffer, 'text/csv')
+                                }
+                                
+                                payload = {
+                                    'target_col': target_col,
+                                    'sensitive_col': sensitive_col,
+                                    'privileged_group': str(privileged_group),
+                                    'unprivileged_group': str(unprivileged_group)
+                                }
+                                
+                                response = requests.post(f"{API_URL}/audit", files=files, data=payload)
+                                
+                                if response.status_code != 200:
+                                    audit_error = f"API Error: {response.text}"
+                                else:
+                                    # START ASYNC POLLING
+                                    task_info = response.json()
+                                    task_id = task_info.get("task_id")
+                                    
+                                    if not task_id:
+                                        audit_error = "Failed to get task ID from API."
+                                    else:
+                                        status_placeholder = st.empty()
+                                        import time
+                                        
+                                        # Poll every 2 seconds
+                                        while True:
+                                            result_response = requests.get(f"{API_URL}/result/{task_id}")
+                                            if result_response.status_code != 200:
+                                                audit_error = "Error checking task status."
+                                                break
+                                            
+                                            result_data = result_response.json()
+                                            state = result_data.get("state")
+                                            status_msg = result_data.get("status", "Processing...")
+                                            
+                                            if state in ["PENDING", "PROGRESS", "STARTED"]:
+                                                status_placeholder.info(f"Status: {status_msg}")
+                                                time.sleep(2)
+                                                
+                                            elif state == "SUCCESS":
+                                                status_placeholder.success("Audit Complete!")
+                                                audit_results = result_data.get("result")
+                                                audit_success = True
+                                                break
+                                                
+                                            elif state == "FAILURE":
+                                                audit_error = f"Task Failed: {result_data.get('error')}"
+                                                break
+                            except Exception as e:
+                                audit_error = f"An error occurred during the audit: {e}"
+                                # import traceback
+                                # st.text(traceback.format_exc())
+
+                        # --- Render Results (Outside Spinner) ---
+                        if audit_error:
+                            st.error(audit_error)
                         
-                        model_obj = st.session_state.get('model')
-                        model_file_content = None
-                        
-                        if isinstance(model_obj, str) and model_obj == "Uploaded Model":
-                             # It was uploaded via file uploader
-                             model_file_content = st.session_state.get('model_file', uploaded_model)
-                             model_file_content.seek(0)
-                        else:
-                             # It is a loaded object (from example)
-                             # We need to serialize it to skops bytes
-                             if model_obj:
-                                 buf = BytesIO()
-                                 sio.dump(model_obj, buf)
-                                 buf.seek(0)
-                                 model_file_content = buf
-                        
-                        if model_file_content is None:
-                            st.error("No model found!")
-                            st.stop()
-                        
-                        # Serialize data
-                        data_buffer = BytesIO()
-                        data.to_csv(data_buffer, index=False)
-                        data_buffer.seek(0)
-                        
-                        files = {
-                            'model_file': ('model.skops', model_file_content, 'application/octet-stream'),
-                            'data_file': ('data.csv', data_buffer, 'text/csv')
-                        }
-                        
-                        payload = {
-                            'target_col': target_col,
-                            'sensitive_col': sensitive_col,
-                            'privileged_group': str(privileged_group),
-                            'unprivileged_group': str(unprivileged_group)
-                        }
-                        
-                        response = requests.post(f"{API_URL}/audit", files=files, data=payload)
-                        
-                        if response.status_code != 200:
-                            st.error(f"API Error: {response.text}")
-                        else:
-                            # START ASYNC POLLING
-                            task_info = response.json()
-                            task_id = task_info.get("task_id")
+                        if audit_success and audit_results:
+                            report = audit_results.get('metrics')
+                            predictions = audit_results.get('predictions')
+                            mitigation_weights = audit_results.get('mitigation_weights')
+                            pdf_b64 = audit_results.get('pdf_report_b64')
+                            visuals_res = audit_results.get('visuals', {})
                             
-                            if not task_id:
-                                st.error("Failed to get task ID from API.")
-                                st.stop()
-                                
-                            status_placeholder = st.empty()
-                            import time
+                            perm_imp_b64 = visuals_res.get('feature_importance')
+                            pdp_b64 = visuals_res.get('pdp_plot')
                             
-                            # Poll every 2 seconds
-                            report = None
-                            while True:
-                                result_response = requests.get(f"{API_URL}/result/{task_id}")
-                                if result_response.status_code != 200:
-                                    st.error("Error checking task status.")
-                                    break
-                                
-                                result_data = result_response.json()
-                                state = result_data.get("state")
-                                status_msg = result_data.get("status", "Processing...")
-                                
-                                if state in ["PENDING", "PROGRESS", "STARTED"]:
-                                    status_placeholder.info(f"Status: {status_msg}")
-                                    time.sleep(2)
-                                    
-                                elif state == "SUCCESS":
-                                    status_placeholder.success("Audit Complete!")
-                                    final_result = result_data.get("result")
-                                    
-                                    report = final_result.get('metrics')
-                                    predictions = final_result.get('predictions')
-                                    mitigation_weights = final_result.get('mitigation_weights')
-                                    pdf_b64 = final_result.get('pdf_report_b64')
-                                    visuals_res = final_result.get('visuals', {})
-                                    
-                                    perm_imp_b64 = visuals_res.get('feature_importance')
-                                    pdp_b64 = visuals_res.get('pdp_plot')
-                                    
-                                    # PDF Download Button
-                                    if pdf_b64:
-                                        import base64
-                                        pdf_bytes = base64.b64decode(pdf_b64)
-                                        st.download_button(
-                                            label="📄 Download PDF Report",
-                                            data=pdf_bytes,
-                                            file_name="fairness_audit_report.pdf",
-                                            mime="application/pdf"
-                                        )
-                                    
-                                    st.subheader("📊 Fairness Metrics Report")
-                                    # ... (rest of metrics display) ...
-                                    # ... (rest of the metric display) ...
-                                    break
-                                    
-                                elif state == "FAILURE":
-                                    st.error(f"Task Failed: {result_data.get('error')}")
-                                    break
+                            # PDF Download Button
+                            if pdf_b64:
+                                import base64
+                                pdf_bytes = base64.b64decode(pdf_b64)
+                                st.download_button(
+                                    label="📄 Download PDF Report",
+                                    data=pdf_bytes,
+                                    file_name="fairness_audit_report.pdf",
+                                    mime="application/pdf"
+                                )
+                            
+                            st.subheader("📊 Fairness Metrics Report")
+
                             if not report:
                                 st.stop()
 
@@ -441,11 +453,6 @@ if model and data is not None:
                                 file_name="data_with_sample_weights.csv",
                                 mime="text/csv",
                             )
-                        
-                    except Exception as e:
-                        st.error(f"An error occurred during the audit: {e}")
-                        import traceback
-                        st.text(traceback.format_exc())
 
 else:
     st.info(
