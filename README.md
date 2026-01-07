@@ -152,9 +152,11 @@ fairness_troops/
 │   ├── schemas.py         # Pydantic Schemas
 │   ├── models.py          # Database Models
 │   ├── database.py        # DB Connection & Session
+│   ├── cache.py           # Redis Cache Logic
 │   └── celery_service.py  # Celery Worker Entrypoint
 ├── app/                   # Frontend App (Streamlit)
 │   └── app.py             # Dashboard Entrypoint
+├── test_validation.py     # Validation Script
 ├── src/
 │   └── fairness_troops/   # Core Python Package
 │       ├── core.py        # Main Auditor Class

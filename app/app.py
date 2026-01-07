@@ -314,11 +314,13 @@ if model and data is not None:
                                 elif state == "FAILURE":
                                     st.error(f"Task Failed: {result_data.get('error')}")
                                     break
-                            if report:
-                                st.markdown(
-                                    f"Comparing **{unprivileged_group}** (Unprivileged) "
-                                    f"vs. **{privileged_group}** (Privileged)"
-                                )
+                            if not report:
+                                st.stop()
+
+                            st.markdown(
+                                f"Comparing **{unprivileged_group}** (Unprivileged) "
+                                f"vs. **{privileged_group}** (Privileged)"
+                            )
                             
                             # Display metrics
                             m1, m2, m3 = st.columns(3)
