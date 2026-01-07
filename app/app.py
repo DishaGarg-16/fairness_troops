@@ -80,7 +80,9 @@ with st.sidebar:
             # Load into session state
             # sio.load returns the model object directly when trusted=True
             # Note: For the example we use trusted=True as we trust our own file
-            st.session_state['model'] = sio.load(model_path, trusted=True)
+            # Retrieve untrusted types from the file and trust them explicitly
+            unknown_types = sio.get_untrusted_types(file=model_path)
+            st.session_state['model'] = sio.load(model_path, trusted=unknown_types)
             st.session_state['data'] = pd.read_csv(data_path)
             
             # Set default keys in session state to pre-fill configuration
