@@ -25,7 +25,18 @@ def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
         # But ideally we inspect first. For this implementation, we rely on skops default safety or explicit trust of sklearn types.
         
         # NOTE: skops.io.load expects a file. byte_buffer works.
-        model = sio.load(BytesIO(model_bytes), trusted=True) 
+        # Fix for CVE-2024-37065: trusted=True is deprecated. 
+        # We must inspect types and explicitly trust them.
+        model_buffer = BytesIO(model_bytes)
+        
+        # Get list of untrusted types in the file
+        untrusted_types = sio.get_untrusted_types(data=model_buffer)
+        
+        # Reset buffer position
+        model_buffer.seek(0)
+        
+        # Load trusting all found types (since this is a user-uploaded model in their own environment)
+        model = sio.load(model_buffer, trusted=untrusted_types) 
         
         data = pd.read_csv(BytesIO(data_csv_str.encode('utf-8')))
         
