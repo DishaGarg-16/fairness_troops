@@ -21,6 +21,11 @@ services:
     depends_on:
       - db
       - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   db:
     image: postgres:15-alpine
@@ -55,7 +60,7 @@ services:
       - redis
       - db
 
-  frontend:
+  celery_service:
     build: 
       context: .
       dockerfile: Dockerfile
@@ -91,7 +96,8 @@ services:
       - PYTHONUNBUFFERED=1
       - API_URL=${API_URL:-http://backend:8000}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:

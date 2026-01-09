@@ -255,7 +255,25 @@ if model and data is not None:
                             'unprivileged_group': str(unprivileged_group)
                         }
                         
-                        response = requests.post(f"{API_URL}/audit", files=files, data=payload)
+                        # Create a session with retry logic
+                        session = requests.Session()
+                        retries = requests.adapters.Retry(
+                            total=5,
+                            backoff_factor=1,
+                            status_forcelist=[502, 503, 504],
+                            allowed_methods=["POST"]
+                        )
+                        session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
+                        
+                        try:
+                            response = session.post(f"{API_URL}/audit", files=files, data=payload)
+                        except requests.exceptions.ConnectionError:
+                            st.error(
+                                f"Could not connect to the backend at {API_URL}. "
+                                "Please ensure the backend service is running using: "
+                                "`uvicorn api.main:app --host 0.0.0.0 --port 8000`"
+                            )
+                            st.stop()
                         
                         if response.status_code != 200:
                             audit_error = f"API Error: {response.text}"
