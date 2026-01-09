@@ -57,6 +57,8 @@ with st.sidebar:
         st.session_state['model'] = None
     if 'data' not in st.session_state:
         st.session_state['data'] = None
+    if 'audit_results' not in st.session_state:
+        st.session_state['audit_results'] = None
 
     # Helpers to clean state when new files are uploaded
     def clear_example_state():
@@ -310,7 +312,7 @@ if model and data is not None:
                                             break
                                         else:
                                             status_placeholder.success("Audit Complete!")
-                                            audit_results = result_payload
+                                            st.session_state['audit_results'] = result_payload
                                             audit_success = True
                                             break
                                         
@@ -319,14 +321,16 @@ if model and data is not None:
                                         break
                     except Exception as e:
                         audit_error = f"An error occurred during the audit: {e}"
-                        # import traceback
                         # st.text(traceback.format_exc())
 
                 # --- Render Results (Outside Spinner) ---
                 if audit_error:
                     st.error(audit_error)
                 
-                if audit_success and audit_results:
+                # Check for results in session state (persisted across reruns)
+                audit_results = st.session_state.get('audit_results')
+                
+                if audit_results: 
                     report = audit_results.get('metrics')
                     predictions = audit_results.get('predictions')
                     mitigation_weights = audit_results.get('mitigation_weights')

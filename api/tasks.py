@@ -30,7 +30,7 @@ def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
         model_buffer = BytesIO(model_bytes)
         
         # Get list of untrusted types in the file
-        untrusted_types = sio.get_untrusted_types(data=model_buffer)
+        untrusted_types = sio.get_untrusted_types(file=model_buffer)
         
         # Reset buffer position
         model_buffer.seek(0)
