@@ -175,6 +175,36 @@ fairness_troops/
 
 ---
 
+## 🔮 Future Roadmap
+
+### Mitigation & Algorithms
+- [ ] **Advanced Mitigation Techniques** — Implement in-processing (e.g., Adversarial Debiasing, Prejudice Remover) and post-processing (e.g., Calibrated Equalized Odds, Reject Option Classification) methods
+- [ ] **Multi-Attribute Fairness** — Support auditing across intersectional groups (e.g., race × gender)
+- [ ] **Fairness-Aware Model Selection** — Auto-select models that balance accuracy and fairness
+
+### Monitoring & Observability
+- [ ] **Prometheus Metrics** — Expose fairness metrics as Prometheus endpoints for real-time monitoring
+- [ ] **Grafana Dashboards** — Pre-built dashboards to visualize fairness drift and model performance over time
+- [ ] **Alerting System** — Configurable alerts when fairness metrics breach thresholds
+
+### Cloud & Deployment
+- [ ] **AWS Deployment Guide** — Step-by-step deployment using AWS ECS/EKS, RDS, and ElastiCache
+- [ ] **Kubernetes Helm Charts** — Production-ready K8s deployment configurations
+
+### AI-Powered Insights
+- [ ] **Agentic AI Analysis** — LLM-powered natural language explanations of bias findings and recommendations
+- [ ] **Automated Root Cause Analysis** — AI-driven identification of bias sources in training data
+- [ ] **Smart Mitigation Suggestions** — Context-aware recommendations based on domain and data characteristics
+
+### Platform Features
+- [ ] **On-Platform Retraining** — Retrain models with mitigation strategies directly in the UI
+- [ ] **Model Versioning** — Track and compare fairness metrics across model versions
+- [ ] **Audit History & Reports** — Persist audit results with historical comparisons
+- [ ] **Team Collaboration** — Multi-user support with role-based access control
+- [ ] **API Rate Limiting & Auth** — Production-ready API security features
+
+---
+
 ## 🤝 Contributing
 
 Contributions are welcome!
