@@ -199,6 +199,13 @@ if model and data is not None:
 
             # --- 3. Run Audit ---
             st.header("3. Run Audit")
+            
+            # Store config in session state so it persists for result rendering
+            st.session_state['config_target_col'] = target_col
+            st.session_state['config_sensitive_col'] = sensitive_col
+            st.session_state['config_privileged_group'] = privileged_group
+            st.session_state['config_unprivileged_group'] = unprivileged_group
+            
             if st.button("Run Fairness Audit", type="primary"):
                 
                 import requests
@@ -323,163 +330,172 @@ if model and data is not None:
                         audit_error = f"An error occurred during the audit: {e}"
                         # st.text(traceback.format_exc())
 
-                # --- Render Results (Outside Spinner) ---
+                # Show error if audit failed
                 if audit_error:
                     st.error(audit_error)
+            
+            # --- Render Results (OUTSIDE button block - persists across reruns) ---
+            # Check for results in session state (persisted across reruns)
+            audit_results = st.session_state.get('audit_results')
+            
+            if audit_results: 
+                report = audit_results.get('metrics')
+                predictions = audit_results.get('predictions')
+                mitigation_weights = audit_results.get('mitigation_weights')
+                pdf_b64 = audit_results.get('pdf_report_b64')
+                visuals_res = audit_results.get('visuals', {})
                 
-                # Check for results in session state (persisted across reruns)
-                audit_results = st.session_state.get('audit_results')
+                perm_imp_b64 = visuals_res.get('feature_importance')
+                pdp_b64 = visuals_res.get('pdp_plot')
                 
-                if audit_results: 
-                    report = audit_results.get('metrics')
-                    predictions = audit_results.get('predictions')
-                    mitigation_weights = audit_results.get('mitigation_weights')
-                    pdf_b64 = audit_results.get('pdf_report_b64')
-                    visuals_res = audit_results.get('visuals', {})
-                    
-                    perm_imp_b64 = visuals_res.get('feature_importance')
-                    pdp_b64 = visuals_res.get('pdp_plot')
-                    
-                    # PDF Download Button
-                    if pdf_b64:
-                        import base64
-                        pdf_bytes = base64.b64decode(pdf_b64)
-                        st.download_button(
-                            label="📄 Download PDF Report",
-                            data=pdf_bytes,
-                            file_name="fairness_audit_report.pdf",
-                            mime="application/pdf"
-                        )
-                    
-                    st.subheader("📊 Fairness Metrics Report")
-
-                    if not report:
-                        st.stop()
-
-                    st.markdown(
-                        f"Comparing **{unprivileged_group}** (Unprivileged) "
-                        f"vs. **{privileged_group}** (Privileged)"
-                    )
-                    
-                    # Display metrics
-                    m1, m2, m3 = st.columns(3)
-                    
-                    with m1:
-                        st.metric(
-                            label="Disparate Impact (DI)",
-                            value=f"{report.get('disparate_impact', 0):.3f}",
-                            help="Ratio of favorable outcomes for unprivileged vs. privileged. Ideal: 1.0. Flagged if < 0.8."
-                        )
-                        st.metric(
-                            label="Statistical Parity Diff",
-                            value=f"{report.get('statistical_parity_diff', 0):.3f}",
-                            help="Difference in positive outcome rates. Ideal: 0."
-                        )
-                        st.metric(
-                            label="Theil Index",
-                            value=f"{report.get('theil_index', 0):.3f}",
-                            help="Individual fairness metric. Lower is better (0=perfect equality)."
-                        )
-
-                    with m2:
-                        st.metric(
-                            label="Equal Opp. Diff (EOD)",
-                            value=f"{report.get('equal_opportunity_diff', 0):.3f}",
-                            help="Difference in True Positive Rates. Ideal: 0.0."
-                        )
-                        st.metric(
-                            label="Avg Abs Odds Diff",
-                            value=f"{report.get('avg_abs_odds_diff', 0):.3f}",
-                            help="Average of absolute difference in FPR and TPR."
-                        )
-
-                    with m3:
-                        st.metric(
-                            label="False Positive Rate Diff",
-                            value=f"{report.get('false_positive_rate_diff', 0):.3f}",
-                            help="Difference in FPR (Unpriv - Priv)."
-                        )
-                        st.metric(
-                            label="False Negative Rate Diff",
-                            value=f"{report.get('false_negative_rate_diff', 0):.3f}",
-                            help="Difference in FNR (Unpriv - Priv)."
-                        )
-                    
-                    # Display Visuals
-                    # We need to reconstruct y_pred Series and sensitive_features Series
-                    # to use the local visuals library
-                    from fairness_troops import visuals
-                    
-                    # Reconstruct y_pred
-                    y_pred_series = pd.Series(
-                        predictions, 
-                        index=data.index, 
-                        name="predictions"
-                    )
-                    
-                    # Reconstruct y_true and sensitive_features
-                    y_true = data[target_col]
-                    sensitive_features = data[sensitive_col]
-                    
-                    st.subheader("Visual Analysis")
-                    v1, v2 = st.columns(2)
-                    with v1:
-                        fig1 = visuals.plot_group_outcomes(
-                            y_pred_series,
-                            sensitive_features,
-                            title=f"Favorable Outcome Rate ({target_col}=1)"
-                        )
-                        st.pyplot(fig1)
-                    with v2:
-                        fig2 = visuals.plot_tpr_by_group(
-                            y_true,
-                            y_pred_series,
-                            sensitive_features,
-                            title=f"True Positive Rate by {sensitive_col}"
-                        )
-                        st.pyplot(fig2)
-                        
-                    # Display Explanations
-                    st.subheader("🔍 Model Explainability")
+                # Use stored config values for display (they persist in session state)
+                display_target_col = st.session_state.get('config_target_col', target_col)
+                display_sensitive_col = st.session_state.get('config_sensitive_col', sensitive_col)
+                display_privileged = st.session_state.get('config_privileged_group', privileged_group)
+                display_unprivileged = st.session_state.get('config_unprivileged_group', unprivileged_group)
+                
+                # PDF Download Button
+                if pdf_b64:
                     import base64
-                    
-                    c1, c2 = st.columns(2)
-                    
-                    with c1:
-                        if perm_imp_b64:
-                            st.markdown("**Permutation Feature Importance**")
-                            st.markdown("Shows which features most affect model performance when shuffled.")
-                            perm_img = base64.b64decode(perm_imp_b64)
-                            st.image(perm_img, use_column_width=True)
-                    
-                    with c2:
-                        if pdp_b64:
-                            st.markdown(f"**Partial Dependence Plot (PDP)**")
-                            st.markdown(f"Shows relationship between *{sensitive_col}* and predicted outcome.")
-                            pdp_img = base64.b64decode(pdp_b64)
-                            st.image(pdp_img, use_column_width=True)
-                        
-                    # --- 4. Mitigation ---
-                    st.header("4. Mitigation Suggestions")
-                    st.subheader("Pre-processing: Reweighting")
-                    st.markdown(
-                        "You can retrain your model using these `sample_weight` values "
-                        "to mitigate bias. This technique gives more weight to "
-                        "under-represented groups and outcomes."
-                    )
-                    
-                    # Add weights to the original dataframe for context
-                    data_with_weights = data.copy()
-                    data_with_weights['sample_weight'] = mitigation_weights
-                    
-                    st.dataframe(data_with_weights.head())
-                    
+                    pdf_bytes = base64.b64decode(pdf_b64)
                     st.download_button(
-                        label="Download All Sample Weights as CSV",
-                        data=convert_df_to_csv(data_with_weights),
-                        file_name="data_with_sample_weights.csv",
-                        mime="text/csv",
+                        label="📄 Download PDF Report",
+                        data=pdf_bytes,
+                        file_name="fairness_audit_report.pdf",
+                        mime="application/pdf",
+                        key="pdf_download"
                     )
+                
+                st.subheader("📊 Fairness Metrics Report")
+
+                if not report:
+                    st.stop()
+
+                st.markdown(
+                    f"Comparing **{display_unprivileged}** (Unprivileged) "
+                    f"vs. **{display_privileged}** (Privileged)"
+                )
+                
+                # Display metrics
+                m1, m2, m3 = st.columns(3)
+                
+                with m1:
+                    st.metric(
+                        label="Disparate Impact (DI)",
+                        value=f"{report.get('disparate_impact', 0):.3f}",
+                        help="Ratio of favorable outcomes for unprivileged vs. privileged. Ideal: 1.0. Flagged if < 0.8."
+                    )
+                    st.metric(
+                        label="Statistical Parity Diff",
+                        value=f"{report.get('statistical_parity_diff', 0):.3f}",
+                        help="Difference in positive outcome rates. Ideal: 0."
+                    )
+                    st.metric(
+                        label="Theil Index",
+                        value=f"{report.get('theil_index', 0):.3f}",
+                        help="Individual fairness metric. Lower is better (0=perfect equality)."
+                    )
+
+                with m2:
+                    st.metric(
+                        label="Equal Opp. Diff (EOD)",
+                        value=f"{report.get('equal_opportunity_diff', 0):.3f}",
+                        help="Difference in True Positive Rates. Ideal: 0.0."
+                    )
+                    st.metric(
+                        label="Avg Abs Odds Diff",
+                        value=f"{report.get('avg_abs_odds_diff', 0):.3f}",
+                        help="Average of absolute difference in FPR and TPR."
+                    )
+
+                with m3:
+                    st.metric(
+                        label="False Positive Rate Diff",
+                        value=f"{report.get('false_positive_rate_diff', 0):.3f}",
+                        help="Difference in FPR (Unpriv - Priv)."
+                    )
+                    st.metric(
+                        label="False Negative Rate Diff",
+                        value=f"{report.get('false_negative_rate_diff', 0):.3f}",
+                        help="Difference in FNR (Unpriv - Priv)."
+                    )
+                
+                # Display Visuals
+                # We need to reconstruct y_pred Series and sensitive_features Series
+                # to use the local visuals library
+                from fairness_troops import visuals
+                
+                # Reconstruct y_pred
+                y_pred_series = pd.Series(
+                    predictions, 
+                    index=data.index, 
+                    name="predictions"
+                )
+                
+                # Reconstruct y_true and sensitive_features
+                y_true = data[display_target_col]
+                sensitive_features = data[display_sensitive_col]
+                
+                st.subheader("Visual Analysis")
+                v1, v2 = st.columns(2)
+                with v1:
+                    fig1 = visuals.plot_group_outcomes(
+                        y_pred_series,
+                        sensitive_features,
+                        title=f"Favorable Outcome Rate ({display_target_col}=1)"
+                    )
+                    st.pyplot(fig1)
+                with v2:
+                    fig2 = visuals.plot_tpr_by_group(
+                        y_true,
+                        y_pred_series,
+                        sensitive_features,
+                        title=f"True Positive Rate by {display_sensitive_col}"
+                    )
+                    st.pyplot(fig2)
+                    
+                # Display Explanations
+                st.subheader("🔍 Model Explainability")
+                import base64
+                
+                c1, c2 = st.columns(2)
+                
+                with c1:
+                    if perm_imp_b64:
+                        st.markdown("**Permutation Feature Importance**")
+                        st.markdown("Shows which features most affect model performance when shuffled.")
+                        perm_img = base64.b64decode(perm_imp_b64)
+                        st.image(perm_img, use_column_width=True)
+                
+                with c2:
+                    if pdp_b64:
+                        st.markdown(f"**Partial Dependence Plot (PDP)**")
+                        st.markdown(f"Shows relationship between *{display_sensitive_col}* and predicted outcome.")
+                        pdp_img = base64.b64decode(pdp_b64)
+                        st.image(pdp_img, use_column_width=True)
+                    
+                # --- 4. Mitigation ---
+                st.header("4. Mitigation Suggestions")
+                st.subheader("Pre-processing: Reweighting")
+                st.markdown(
+                    "You can retrain your model using these `sample_weight` values "
+                    "to mitigate bias. This technique gives more weight to "
+                    "under-represented groups and outcomes."
+                )
+                
+                # Add weights to the original dataframe for context
+                data_with_weights = data.copy()
+                data_with_weights['sample_weight'] = mitigation_weights
+                
+                st.dataframe(data_with_weights.head())
+                
+                st.download_button(
+                    label="Download All Sample Weights as CSV",
+                    data=convert_df_to_csv(data_with_weights),
+                    file_name="data_with_sample_weights.csv",
+                    mime="text/csv",
+                    key="csv_download"
+                )
 
 else:
     st.info(
