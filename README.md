@@ -175,7 +175,7 @@ fairness_troops/
 
 ---
 
-## 🔮 Future Roadmap
+## 🔍 Future Scope & Improvements
 
 ### Mitigation & Algorithms
 - [ ] **Advanced Mitigation Techniques** — Implement in-processing (e.g., Adversarial Debiasing, Prejudice Remover) and post-processing (e.g., Calibrated Equalized Odds, Reject Option Classification) methods
