@@ -10,14 +10,36 @@ Check it out here! https://fairness-troops.streamlit.app/
 The application is built using a microservices architecture to ensure scalability and separation of concerns.
 
 ```mermaid
-graph TD
-    User([User]) -->|Interacts| Frontend[Frontend Streamlit]
-    Frontend -->|HTTP Requests| Backend[Backend FastAPI]
-    Backend -->|Reads/Writes| DB[(PostgreSQL)]
-    Backend -->|Enqueues Tasks| Redis[(Redis)]
-    Worker[Celery Worker] -->|Dequeues Tasks| Redis
-    Worker -->|Updates Results| DB
-    Worker -->|Uses| Core[Core Logic src/fairness_troops]
+graph LR
+    subgraph Client
+        User([User])
+    end
+
+    subgraph Frontend
+        Streamlit[Streamlit App]
+    end
+
+    subgraph Backend
+        API[FastAPI]
+    end
+
+    subgraph Data Layer
+        DB[(PostgreSQL)]
+        Redis[(Redis)]
+    end
+
+    subgraph Workers
+        Celery[Celery Worker]
+        Core[Core Logic<br/>src/fairness_troops]
+    end
+
+    User -->|Interacts| Streamlit
+    Streamlit -->|HTTP Requests| API
+    API -->|Reads/Writes| DB
+    API -->|Enqueues Tasks| Redis
+    Redis -->|Dequeues Tasks| Celery
+    Celery -->|Updates Results| DB
+    Celery -->|Uses| Core
 ```
 
 ### Components
