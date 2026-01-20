@@ -3,14 +3,60 @@ import pandas as pd
 from io import BytesIO
 import base64
 import json
+import logging
+import time
 import skops.io as sio
 from fairness_troops import BiasAuditor, BiasExplainer, ReportGenerator, visuals
 
-@celery_app.task(bind=True)
+# Configure logging for task tracking
+logger = logging.getLogger(__name__)
+
+# Task metrics tracking (in production, use Prometheus/StatsD)
+_task_metrics = {
+    "total_tasks": 0,
+    "successful_tasks": 0,
+    "failed_tasks": 0,
+    "retried_tasks": 0,
+}
+
+
+def get_task_metrics() -> dict:
+    """Return current task success/failure metrics."""
+    total = _task_metrics["total_tasks"]
+    success = _task_metrics["successful_tasks"]
+    success_rate = (success / total * 100) if total > 0 else 0.0
+    return {
+        **_task_metrics,
+        "success_rate_percent": round(success_rate, 2)
+    }
+
+
+@celery_app.task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,  # Max 5 minutes between retries
+    max_retries=3,
+    retry_jitter=True,  # Add randomness to prevent thundering herd
+    track_started=True,
+    acks_late=True,  # Acknowledge after completion for reliability
+)
 def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
     """
     Async task to run audit, generate explanations, and create a report.
+    
+    Features:
+    - Automatic retry with exponential backoff (up to 3 retries)
+    - Task success/failure tracking for reliability metrics
+    - Progress updates for UI feedback
     """
+    task_id = self.request.id
+    start_time = time.time()
+    
+    # Track task start
+    _task_metrics["total_tasks"] += 1
+    logger.info(f"Task {task_id} started. Retry attempt: {self.request.retries}/{self.max_retries}")
+    
     try:
         self.update_state(state='PROGRESS', meta={'message': 'Loading data...'})
         
@@ -106,17 +152,39 @@ def run_audit_task(self, model_bytes_b64: str, data_csv_str: str, config: dict):
         pdf_bytes = pdf_gen.generate(visual_b64s)
         pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
+        # Track successful completion
+        elapsed_time = time.time() - start_time
+        _task_metrics["successful_tasks"] += 1
+        logger.info(f"Task {task_id} completed successfully in {elapsed_time:.2f}s. "
+                   f"Success rate: {get_task_metrics()['success_rate_percent']}%")
+
         return {
             "status": "success",
             "metrics": report,
             "predictions": predictions,
             "mitigation_weights": mitigation_weights,
             "pdf_report_b64": pdf_b64,
-            "visuals": visual_b64s # Optional: send images back to frontend if needed
+            "visuals": visual_b64s,
+            "execution_time_seconds": round(elapsed_time, 2)
         }
 
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        # Custom error handling to propagate message
-        return {"status": "error", "error": str(e)}
+        elapsed_time = time.time() - start_time
+        
+        # Check if we've exhausted retries
+        if self.request.retries >= self.max_retries:
+            _task_metrics["failed_tasks"] += 1
+            logger.error(f"Task {task_id} failed permanently after {self.request.retries} retries. "
+                        f"Error: {str(e)}. Elapsed: {elapsed_time:.2f}s")
+            traceback.print_exc()
+            # Return error instead of raising to avoid further retries
+            return {"status": "error", "error": str(e)}
+        else:
+            # Track retry attempt
+            _task_metrics["retried_tasks"] += 1
+            logger.warning(f"Task {task_id} failed, will retry ({self.request.retries + 1}/{self.max_retries}). "
+                          f"Error: {str(e)}")
+            # Re-raise to trigger Celery's retry mechanism
+            raise
+

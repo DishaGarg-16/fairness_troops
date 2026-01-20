@@ -499,16 +499,63 @@ if model and data is not None:
 
 else:
     st.info(
-        "Welcome! Please upload a model and a dataset using the sidebar to begin."
+        "Welcome! Please upload a model and a dataset using the sidebar, or try the example below."
     )
-    st.subheader("Don't have files?")
+    
+    st.subheader("🧪 Try the Adult Census Example")
     st.markdown(
         """
-        1.  Make sure you have run `uv pip install -e .` in your terminal.
-        2.  Run the example script to create a sample model:
-            ```bash
-            python examples/01_train_sample_model.py
-            ```
-        3.  Upload `data/sample_model.skops` and `data/sample_loan_data.csv`.
+        Test the fairness auditor with a pre-trained model on the **Adult Census Income** dataset.
+        This dataset is commonly used to study income prediction bias across gender and race groups.
+        """
+    )
+    
+    # Load Example button on main page
+    if st.button("📊 Load Adult Census Example", type="primary", key="main_load_example"):
+        try:
+            import os
+            import skops.io as sio
+            
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(base_dir, '..', 'data', 'adult_model.skops')
+            data_path = os.path.join(base_dir, '..', 'data', 'adult_test_data.csv')
+            
+            # Load model and data
+            unknown_types = sio.get_untrusted_types(file=model_path)
+            st.session_state['model'] = sio.load(model_path, trusted=unknown_types)
+            st.session_state['data'] = pd.read_csv(data_path)
+            
+            # Set default configuration
+            st.session_state['target_col'] = 'income'
+            st.session_state['sensitive_col'] = 'sex'
+            st.session_state['privileged_group'] = 'Male'
+            st.session_state['unprivileged_group'] = 'Female'
+            
+            st.success("✅ Adult Census Example loaded! Scroll up to configure and run the audit.")
+            st.rerun()
+        except FileNotFoundError:
+            st.error(
+                "Example files not found. Please run the following command first:\n\n"
+                "```bash\npython examples/02_train_adult_model.py\n```"
+            )
+        except Exception as e:
+            st.error(f"Error loading example: {e}")
+    
+    st.markdown("---")
+    st.subheader("📁 Or Upload Your Own Files")
+    st.markdown(
+        """
+        **Requirements:**
+        - **Model file**: `.skops` format (scikit-learn model saved with skops)
+        - **Data file**: `.csv` format with target and sensitive attribute columns
+        
+        **Need to create example files?**
+        ```bash
+        # Install the package
+        uv pip install -e .
+        
+        # Generate Adult Census example
+        python examples/02_train_adult_model.py
+        ```
         """
     )

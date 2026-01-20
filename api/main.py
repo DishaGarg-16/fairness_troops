@@ -19,7 +19,7 @@ from .schemas import (
     TaskStatusResponse, TaskStartResponse, HealthResponse,
     MAX_FILE_SIZE_BYTES
 )
-from .tasks import run_audit_task
+from .tasks import run_audit_task, get_task_metrics
 from celery.result import AsyncResult
 
 # Configure logging
@@ -188,3 +188,13 @@ async def get_audit_result(task_id: str):
         )
         
     return TaskStatusResponse(task_id=task_id, state=task_result.state)
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """
+    Returns task execution metrics including success rate.
+    Useful for monitoring reliability (supports the >99% success rate claim).
+    """
+    return get_task_metrics()
+
