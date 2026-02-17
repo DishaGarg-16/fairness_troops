@@ -18,17 +18,13 @@ COPY pyproject.toml .
 # Install dependencies using uv
 # --system: install into system python
 # --all-extras: install optional dependencies if any (we have celery[redis] in basics though)
-RUN uv pip install --system -r pyproject.toml
+
 
 # Copy the rest of the application
 COPY . .
 
 # Install the project itself (Standard non-editable install for production)
 RUN uv pip install --system .
-
-EXPOSE 8501
-
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
 # Make this the default CMD, but overrideable by docker-compose
 CMD ["streamlit", "run", "app/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
