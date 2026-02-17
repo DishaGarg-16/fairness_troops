@@ -67,36 +67,37 @@ with st.sidebar:
         # reset config keys if needed, or let them stay
 
     # --- Load Example Data Button ---
-    st.markdown("---")
-    st.subheader("Or Try an Example")
-    if st.button("Load Adult Census Example"):
-        try:
-            import os
-            # Paths relative to app/app.py
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            # We assume the user has generated this with skops, or we will generate it on the fly if needed
-            # For now, let's point to .skops
-            model_path = os.path.join(base_dir, '..', 'data', 'adult_model.skops')
-            data_path = os.path.join(base_dir, '..', 'data', 'adult_test_data.csv')
+    
+    # st.markdown("---")
+    # st.subheader("Or Try an Example")
+    # if st.button("Load Adult Census Example"):
+    #     try:
+    #         import os
+    #         # Paths relative to app/app.py
+    #         base_dir = os.path.dirname(os.path.abspath(__file__))
+    #         # We assume the user has generated this with skops, or we will generate it on the fly if needed
+    #         # For now, let's point to .skops
+    #         model_path = os.path.join(base_dir, '..', 'data', 'adult_model.skops')
+    #         data_path = os.path.join(base_dir, '..', 'data', 'adult_test_data.csv')
             
-            # Load into session state
-            # sio.load returns the model object directly when trusted=True
-            # Note: For the example we use trusted=True as we trust our own file
-            # Retrieve untrusted types from the file and trust them explicitly
-            unknown_types = sio.get_untrusted_types(file=model_path)
-            st.session_state['model'] = sio.load(model_path, trusted=unknown_types)
-            st.session_state['data'] = pd.read_csv(data_path)
+    #         # Load into session state
+    #         # sio.load returns the model object directly when trusted=True
+    #         # Note: For the example we use trusted=True as we trust our own file
+    #         # Retrieve untrusted types from the file and trust them explicitly
+    #         unknown_types = sio.get_untrusted_types(file=model_path)
+    #         st.session_state['model'] = sio.load(model_path, trusted=unknown_types)
+    #         st.session_state['data'] = pd.read_csv(data_path)
             
-            # Set default keys in session state to pre-fill configuration
-            st.session_state['target_col'] = 'income'
-            st.session_state['sensitive_col'] = 'sex'
-            st.session_state['privileged_group'] = 'Male'
-            st.session_state['unprivileged_group'] = 'Female'
+    #         # Set default keys in session state to pre-fill configuration
+    #         st.session_state['target_col'] = 'income'
+    #         st.session_state['sensitive_col'] = 'sex'
+    #         st.session_state['privileged_group'] = 'Male'
+    #         st.session_state['unprivileged_group'] = 'Female'
             
-            st.success("Adult Census Example loaded!")
-            st.rerun() # Rerun to update the UI immediately
-        except Exception as e:
-            st.error(f"Error loading example: {e}\n(Make sure you have run the updated example generation script!)")
+    #         st.success("Adult Census Example loaded!")
+    #         st.rerun() # Rerun to update the UI immediately
+    #     except Exception as e:
+    #         st.error(f"Error loading example: {e}\n(Make sure you have run the updated example generation script!)")
 
     if uploaded_model:
         try:
