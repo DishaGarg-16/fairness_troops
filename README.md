@@ -2,7 +2,7 @@
 
 A plug-and-play Python toolkit and Streamlit dashboard to audit trained ML models for hidden biases and suggest mitigation strategies.  
 Check it out here! https://fairness-troops.streamlit.app/
-
+Demo - https://youtu.be/jSK7wNZQzkc
 ---
 
 ## 🏗️ System Architecture
