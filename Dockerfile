@@ -27,4 +27,4 @@ COPY . .
 RUN uv pip install --system .
 
 # Make this the default CMD, but overrideable by docker-compose
-CMD ["streamlit", "run", "app/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+CMD ["python", "api/run_server.py"]
