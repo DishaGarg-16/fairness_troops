@@ -40,7 +40,19 @@ with st.sidebar:
     st.header("1. Upload Your Files")
     
     st.markdown("**1. Upload trained model (.skops)**")
-    st.info("For security, we only accept `.skops` files. [Learn how to save your model](#don-t-have-files)")
+    st.info("For security, we only accept `.skops` files.")
+    with st.expander("💡 How to save your model as .skops"):
+        st.code(
+            """import skops.io as sio
+
+# After training your model:
+sio.dump(model, "model.skops")
+""",
+            language="python"
+        )
+        st.markdown(
+            "[Learn more about skops](https://skops.readthedocs.io/en/stable/)"
+        )
     uploaded_model = st.file_uploader(
         "Drag and drop file here", 
         type=['skops'], 
@@ -118,9 +130,22 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Error loading data: {e}")
 
+    # --- Reset / Start Over Button ---
+    st.markdown("---")
+    if st.button("Home", use_container_width=True):
+        # Clear all audit-related session state
+        for key in ['model', 'model_file', 'data', 'audit_results',
+                     'config_target_col', 'config_sensitive_col',
+                     'config_privileged_group', 'config_unprivileged_group',
+                     'target_col', 'sensitive_col',
+                     'privileged_group', 'unprivileged_group']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
     # Assign local variables from session state for use in main page
-    model = st.session_state['model']
-    data = st.session_state['data']
+    model = st.session_state.get('model')
+    data = st.session_state.get('data')
 
 
 # --- Main Page ---
@@ -186,349 +211,328 @@ if model and data is not None:
         if len(unique_groups) < 2:
             st.warning(f"Sensitive attribute '{sensitive_col}' must have at least 2 unique groups.")
             sensitive_valid = False
-        else:
-            col1, col2 = st.columns(2)
-            with col1:
-                priv_default_idx = 0
-                if 'privileged_group' in st.session_state and st.session_state['privileged_group'] in unique_groups:
-                    # unique_groups is a numpy array, need to handle index carefully or convert to list
-                    # It's safer to rely on automatic matching or explicit index finding if unique_groups is list-like
-                    pass 
-                    # Simpler to just let user select or rely on default logic we implemented.
-                    # Actually, let's try to set it if possible:
+    
+    # Only show group selection and Run button when validation passes
+    if target_valid and sensitive_valid:
+        col1, col2 = st.columns(2)
+        with col1:
+            priv_default_idx = 0
+            if 'privileged_group' in st.session_state and st.session_state['privileged_group'] in unique_groups:
+                try:
+                     priv_default_idx = list(unique_groups).index(st.session_state['privileged_group'])
+                except ValueError:
+                    pass
+
+            privileged_group = st.selectbox(
+                "Select Privileged Group",
+                unique_groups,
+                index=priv_default_idx
+            )
+        with col2:
+            unpriv_options = [g for g in unique_groups if g != privileged_group]
+            unpriv_default_idx = 0
+            if 'unprivileged_group' in st.session_state and st.session_state['unprivileged_group'] in unpriv_options:
+                 try:
+                     unpriv_default_idx = unpriv_options.index(st.session_state['unprivileged_group'])
+                 except ValueError:
+                     pass
+
+            unprivileged_group = st.selectbox(
+                "Select Unprivileged Group",
+                unpriv_options,
+                index=unpriv_default_idx
+            )
+
+        # --- 3. Run Audit ---
+        st.header("3. Run Audit")
+        
+        # Store config in session state so it persists for result rendering
+        st.session_state['config_target_col'] = target_col
+        st.session_state['config_sensitive_col'] = sensitive_col
+        st.session_state['config_privileged_group'] = privileged_group
+        st.session_state['config_unprivileged_group'] = unprivileged_group
+        
+        if st.button("Run Fairness Audit", type="primary"):
+                
+            import requests
+            import os
+            
+            API_URL = os.getenv("API_URL", "http://localhost:8000")
+            
+            # Variables to store results
+            audit_success = False
+            audit_results = None
+            audit_error = None
+
+            with st.spinner(f"Running audit via {API_URL}... 🕵️"):
+                try:
+                    # Prepare files for API
+                    model_obj = st.session_state.get('model')
+                    model_file_content = None
+                    
+                    if isinstance(model_obj, str) and model_obj == "Uploaded Model":
+                         # It was uploaded via file uploader
+                         model_file_content = st.session_state.get('model_file', uploaded_model)
+                         model_file_content.seek(0)
+                    else:
+                         # It is a loaded object (from example)
+                         # We need to serialize it to skops bytes
+                         if model_obj:
+                             buf = BytesIO()
+                             sio.dump(model_obj, buf)
+                             buf.seek(0)
+                             model_file_content = buf
+                    
+                    if model_file_content is None:
+                        st.error("No model found!")
+                        st.stop()
+                    
+                    # Serialize data
+                    data_buffer = BytesIO()
+                    data.to_csv(data_buffer, index=False)
+                    data_buffer.seek(0)
+                    
+                    files = {
+                        'model_file': ('model.skops', model_file_content, 'application/octet-stream'),
+                        'data_file': ('data.csv', data_buffer, 'text/csv')
+                    }
+                    
+                    payload = {
+                        'target_col': target_col,
+                        'sensitive_col': sensitive_col,
+                        'privileged_group': str(privileged_group),
+                        'unprivileged_group': str(unprivileged_group)
+                    }
+                    
+                    # Create a session with retry logic
+                    session = requests.Session()
+                    retries = requests.adapters.Retry(
+                        total=5,
+                        backoff_factor=1,
+                        status_forcelist=[502, 503, 504],
+                        allowed_methods=["POST"]
+                    )
+                    session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
+                    
                     try:
-                         # unique_groups might be numpy array
-                         priv_default_idx = list(unique_groups).index(st.session_state['privileged_group'])
-                    except ValueError:
-                        pass
-
-                privileged_group = st.selectbox(
-                    "Select Privileged Group",
-                    unique_groups,
-                    index=priv_default_idx
-                )
-            with col2:
-                unpriv_options = [g for g in unique_groups if g != privileged_group]
-                unpriv_default_idx = 0
-                if 'unprivileged_group' in st.session_state and st.session_state['unprivileged_group'] in unpriv_options:
-                     try:
-                         unpriv_default_idx = unpriv_options.index(st.session_state['unprivileged_group'])
-                     except ValueError:
-                         pass
-
-                unprivileged_group = st.selectbox(
-                    "Select Unprivileged Group",
-                    unpriv_options,
-                    index=unpriv_default_idx
-                )
-
-            # --- 3. Run Audit ---
-            st.header("3. Run Audit")
-            
-            # Store config in session state so it persists for result rendering
-            st.session_state['config_target_col'] = target_col
-            st.session_state['config_sensitive_col'] = sensitive_col
-            st.session_state['config_privileged_group'] = privileged_group
-            st.session_state['config_unprivileged_group'] = unprivileged_group
-            
-            # Determine if we can run the audit
-            can_run_audit = target_valid and sensitive_valid
-            
-            if not can_run_audit:
-                st.warning(
-                    "🚫 Please fix the validation errors above before running the audit."
-                )
-            
-            if st.button("Run Fairness Audit", type="primary", disabled=not can_run_audit):
-                
-                import requests
-                import os
-                
-                API_URL = os.getenv("API_URL", "http://localhost:8000")
-                
-                # Variables to store results
-                audit_success = False
-                audit_results = None
-                audit_error = None
-
-                with st.spinner(f"Running audit via {API_URL}... 🕵️"):
-                    try:
-                        # Prepare files for API
-                        # Reset pointers
-                        # We use the raw uploaded file object from session state or the uploader
-                        # If using example, we might need to serialize it?
-                        # Wait, if we use Example, st.session_state['model'] is the actual object.
-                        # We need to handle BOTH cases: Uploaded File (bytes) OR Example Object (sklearn object).
-                        
-                        model_obj = st.session_state.get('model')
-                        model_file_content = None
-                        
-                        if isinstance(model_obj, str) and model_obj == "Uploaded Model":
-                             # It was uploaded via file uploader
-                             model_file_content = st.session_state.get('model_file', uploaded_model)
-                             model_file_content.seek(0)
-                        else:
-                             # It is a loaded object (from example)
-                             # We need to serialize it to skops bytes
-                             if model_obj:
-                                 buf = BytesIO()
-                                 sio.dump(model_obj, buf)
-                                 buf.seek(0)
-                                 model_file_content = buf
-                        
-                        if model_file_content is None:
-                            st.error("No model found!")
-                            st.stop()
-                        
-                        # Serialize data
-                        data_buffer = BytesIO()
-                        data.to_csv(data_buffer, index=False)
-                        data_buffer.seek(0)
-                        
-                        files = {
-                            'model_file': ('model.skops', model_file_content, 'application/octet-stream'),
-                            'data_file': ('data.csv', data_buffer, 'text/csv')
-                        }
-                        
-                        payload = {
-                            'target_col': target_col,
-                            'sensitive_col': sensitive_col,
-                            'privileged_group': str(privileged_group),
-                            'unprivileged_group': str(unprivileged_group)
-                        }
-                        
-                        # Create a session with retry logic
-                        session = requests.Session()
-                        retries = requests.adapters.Retry(
-                            total=5,
-                            backoff_factor=1,
-                            status_forcelist=[502, 503, 504],
-                            allowed_methods=["POST"]
+                        response = session.post(f"{API_URL}/audit", files=files, data=payload)
+                    except requests.exceptions.ConnectionError:
+                        st.error(
+                            f"Could not connect to the backend at {API_URL}. "
+                            "Please ensure the backend service is running using: "
+                            "`uvicorn api.main:app --host 0.0.0.0 --port 8000`"
                         )
-                        session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
+                        st.stop()
+                    
+                    if response.status_code != 200:
+                        audit_error = f"API Error: {response.text}"
+                    else:
+                        # START ASYNC POLLING
+                        task_info = response.json()
+                        task_id = task_info.get("task_id")
                         
-                        try:
-                            response = session.post(f"{API_URL}/audit", files=files, data=payload)
-                        except requests.exceptions.ConnectionError:
-                            st.error(
-                                f"Could not connect to the backend at {API_URL}. "
-                                "Please ensure the backend service is running using: "
-                                "`uvicorn api.main:app --host 0.0.0.0 --port 8000`"
-                            )
-                            st.stop()
-                        
-                        if response.status_code != 200:
-                            audit_error = f"API Error: {response.text}"
+                        if not task_id:
+                            audit_error = "Failed to get task ID from API."
                         else:
-                            # START ASYNC POLLING
-                            task_info = response.json()
-                            task_id = task_info.get("task_id")
+                            status_placeholder = st.empty()
+                            import time
                             
-                            if not task_id:
-                                audit_error = "Failed to get task ID from API."
-                            else:
-                                status_placeholder = st.empty()
-                                import time
+                            # Poll every 2 seconds
+                            while True:
+                                result_response = requests.get(f"{API_URL}/result/{task_id}")
+                                if result_response.status_code != 200:
+                                    audit_error = "Error checking task status."
+                                    break
                                 
-                                # Poll every 2 seconds
-                                while True:
-                                    result_response = requests.get(f"{API_URL}/result/{task_id}")
-                                    if result_response.status_code != 200:
-                                        audit_error = "Error checking task status."
+                                result_data = result_response.json()
+                                state = result_data.get("state")
+                                status_msg = result_data.get("status", "Processing...")
+                                
+                                if state in ["PENDING", "PROGRESS", "STARTED"]:
+                                    status_placeholder.info(f"Status: {status_msg}")
+                                    time.sleep(2)
+                                    
+                                elif state == "SUCCESS":
+                                    result_payload = result_data.get("result", {})
+                                    if result_payload.get("status") == "error":
+                                        audit_error = f"Task Failed: {result_payload.get('error')}"
+                                        break
+                                    else:
+                                        status_placeholder.success("Audit Complete!")
+                                        st.session_state['audit_results'] = result_payload
+                                        audit_success = True
                                         break
                                     
-                                    result_data = result_response.json()
-                                    state = result_data.get("state")
-                                    status_msg = result_data.get("status", "Processing...")
-                                    
-                                    if state in ["PENDING", "PROGRESS", "STARTED"]:
-                                        status_placeholder.info(f"Status: {status_msg}")
-                                        time.sleep(2)
-                                        
-                                    elif state == "SUCCESS":
-                                        result_payload = result_data.get("result", {})
-                                        if result_payload.get("status") == "error":
-                                            audit_error = f"Task Failed: {result_payload.get('error')}"
-                                            break
-                                        else:
-                                            status_placeholder.success("Audit Complete!")
-                                            st.session_state['audit_results'] = result_payload
-                                            audit_success = True
-                                            break
-                                        
-                                    elif state == "FAILURE":
-                                        audit_error = f"Task Failed: {result_data.get('error')}"
-                                        break
-                    except Exception as e:
-                        audit_error = f"An error occurred during the audit: {e}"
-                        # st.text(traceback.format_exc())
+                                elif state == "FAILURE":
+                                    audit_error = f"Task Failed: {result_data.get('error')}"
+                                    break
+                except Exception as e:
+                    audit_error = f"An error occurred during the audit: {e}"
 
-                # Show error if audit failed
-                if audit_error:
-                    st.error(audit_error)
+            # Show error if audit failed
+            if audit_error:
+                st.error(audit_error)
+        
+        # --- Render Results (OUTSIDE button block - persists across reruns) ---
+        # Check for results in session state (persisted across reruns)
+        audit_results = st.session_state.get('audit_results')
+        
+        if audit_results: 
+            report = audit_results.get('metrics')
+            predictions = audit_results.get('predictions')
+            mitigation_weights = audit_results.get('mitigation_weights')
+            pdf_b64 = audit_results.get('pdf_report_b64')
+            visuals_res = audit_results.get('visuals', {})
             
-            # --- Render Results (OUTSIDE button block - persists across reruns) ---
-            # Check for results in session state (persisted across reruns)
-            audit_results = st.session_state.get('audit_results')
+            perm_imp_b64 = visuals_res.get('feature_importance')
+            pdp_b64 = visuals_res.get('pdp_plot')
             
-            if audit_results: 
-                report = audit_results.get('metrics')
-                predictions = audit_results.get('predictions')
-                mitigation_weights = audit_results.get('mitigation_weights')
-                pdf_b64 = audit_results.get('pdf_report_b64')
-                visuals_res = audit_results.get('visuals', {})
-                
-                perm_imp_b64 = visuals_res.get('feature_importance')
-                pdp_b64 = visuals_res.get('pdp_plot')
-                
-                # Use stored config values for display (they persist in session state)
-                display_target_col = st.session_state.get('config_target_col', target_col)
-                display_sensitive_col = st.session_state.get('config_sensitive_col', sensitive_col)
-                display_privileged = st.session_state.get('config_privileged_group', privileged_group)
-                display_unprivileged = st.session_state.get('config_unprivileged_group', unprivileged_group)
-                
-                # PDF Download Button
-                if pdf_b64:
-                    import base64
-                    pdf_bytes = base64.b64decode(pdf_b64)
-                    st.download_button(
-                        label="📄 Download PDF Report",
-                        data=pdf_bytes,
-                        file_name="fairness_audit_report.pdf",
-                        mime="application/pdf",
-                        key="pdf_download"
-                    )
-                
-                st.subheader("📊 Fairness Metrics Report")
-
-                if not report:
-                    st.stop()
-
-                st.markdown(
-                    f"Comparing **{display_unprivileged}** (Unprivileged) "
-                    f"vs. **{display_privileged}** (Privileged)"
-                )
-                
-                # Display metrics
-                m1, m2, m3 = st.columns(3)
-                
-                with m1:
-                    st.metric(
-                        label="Disparate Impact (DI)",
-                        value=f"{report.get('disparate_impact', 0):.3f}",
-                        help="Ratio of favorable outcomes for unprivileged vs. privileged. Ideal: 1.0. Flagged if < 0.8."
-                    )
-                    st.metric(
-                        label="Statistical Parity Diff",
-                        value=f"{report.get('statistical_parity_diff', 0):.3f}",
-                        help="Difference in positive outcome rates. Ideal: 0."
-                    )
-                    st.metric(
-                        label="Theil Index",
-                        value=f"{report.get('theil_index', 0):.3f}",
-                        help="Individual fairness metric. Lower is better (0=perfect equality)."
-                    )
-
-                with m2:
-                    st.metric(
-                        label="Equal Opp. Diff (EOD)",
-                        value=f"{report.get('equal_opportunity_diff', 0):.3f}",
-                        help="Difference in True Positive Rates. Ideal: 0.0."
-                    )
-                    st.metric(
-                        label="Avg Abs Odds Diff",
-                        value=f"{report.get('avg_abs_odds_diff', 0):.3f}",
-                        help="Average of absolute difference in FPR and TPR."
-                    )
-
-                with m3:
-                    st.metric(
-                        label="False Positive Rate Diff",
-                        value=f"{report.get('false_positive_rate_diff', 0):.3f}",
-                        help="Difference in FPR (Unpriv - Priv)."
-                    )
-                    st.metric(
-                        label="False Negative Rate Diff",
-                        value=f"{report.get('false_negative_rate_diff', 0):.3f}",
-                        help="Difference in FNR (Unpriv - Priv)."
-                    )
-                
-                # Display Visuals
-                # We need to reconstruct y_pred Series and sensitive_features Series
-                # to use the local visuals library
-                from fairness_troops import visuals
-                
-                # Reconstruct y_pred
-                y_pred_series = pd.Series(
-                    predictions, 
-                    index=data.index, 
-                    name="predictions"
-                )
-                
-                # Reconstruct y_true and sensitive_features
-                y_true = data[display_target_col]
-                sensitive_features = data[display_sensitive_col]
-                
-                st.subheader("Visual Analysis")
-                v1, v2 = st.columns(2)
-                with v1:
-                    fig1 = visuals.plot_group_outcomes(
-                        y_pred_series,
-                        sensitive_features,
-                        title=f"Favorable Outcome Rate ({display_target_col}=1)"
-                    )
-                    st.pyplot(fig1)
-                with v2:
-                    fig2 = visuals.plot_tpr_by_group(
-                        y_true,
-                        y_pred_series,
-                        sensitive_features,
-                        title=f"True Positive Rate by {display_sensitive_col}"
-                    )
-                    st.pyplot(fig2)
-                    
-                # Display Explanations
-                st.subheader("🔍 Model Explainability")
+            # Use stored config values for display (they persist in session state)
+            display_target_col = st.session_state.get('config_target_col', target_col)
+            display_sensitive_col = st.session_state.get('config_sensitive_col', sensitive_col)
+            display_privileged = st.session_state.get('config_privileged_group', privileged_group)
+            display_unprivileged = st.session_state.get('config_unprivileged_group', unprivileged_group)
+            
+            # PDF Download Button
+            if pdf_b64:
                 import base64
-                
-                c1, c2 = st.columns(2)
-                
-                with c1:
-                    if perm_imp_b64:
-                        st.markdown("**Permutation Feature Importance**")
-                        st.markdown("Shows which features most affect model performance when shuffled.")
-                        perm_img = base64.b64decode(perm_imp_b64)
-                        st.image(perm_img, use_column_width=True)
-                
-                with c2:
-                    if pdp_b64:
-                        st.markdown(f"**Partial Dependence Plot (PDP)**")
-                        st.markdown(f"Shows relationship between *{display_sensitive_col}* and predicted outcome.")
-                        pdp_img = base64.b64decode(pdp_b64)
-                        st.image(pdp_img, use_column_width=True)
-                    
-                # --- 4. Mitigation ---
-                st.header("4. Mitigation Suggestions")
-                st.subheader("Pre-processing: Reweighting")
-                st.markdown(
-                    "You can retrain your model using these `sample_weight` values "
-                    "to mitigate bias. This technique gives more weight to "
-                    "under-represented groups and outcomes."
-                )
-                
-                # Add weights to the original dataframe for context
-                data_with_weights = data.copy()
-                data_with_weights['sample_weight'] = mitigation_weights
-                
-                st.dataframe(data_with_weights.head())
-                
+                pdf_bytes = base64.b64decode(pdf_b64)
                 st.download_button(
-                    label="Download All Sample Weights as CSV",
-                    data=convert_df_to_csv(data_with_weights),
-                    file_name="data_with_sample_weights.csv",
-                    mime="text/csv",
-                    key="csv_download"
+                    label="📄 Download PDF Report",
+                    data=pdf_bytes,
+                    file_name="fairness_audit_report.pdf",
+                    mime="application/pdf",
+                    key="pdf_download"
                 )
+            
+            st.subheader("📊 Fairness Metrics Report")
+
+            if not report:
+                st.stop()
+
+            st.markdown(
+                f"Comparing **{display_unprivileged}** (Unprivileged) "
+                f"vs. **{display_privileged}** (Privileged)"
+            )
+            
+            # Display metrics
+            m1, m2, m3 = st.columns(3)
+            
+            with m1:
+                st.metric(
+                    label="Disparate Impact (DI)",
+                    value=f"{report.get('disparate_impact', 0):.3f}",
+                    help="Ratio of favorable outcomes for unprivileged vs. privileged. Ideal: 1.0. Flagged if < 0.8."
+                )
+                st.metric(
+                    label="Statistical Parity Diff",
+                    value=f"{report.get('statistical_parity_diff', 0):.3f}",
+                    help="Difference in positive outcome rates. Ideal: 0."
+                )
+                st.metric(
+                    label="Theil Index",
+                    value=f"{report.get('theil_index', 0):.3f}",
+                    help="Individual fairness metric. Lower is better (0=perfect equality)."
+                )
+
+            with m2:
+                st.metric(
+                    label="Equal Opp. Diff (EOD)",
+                    value=f"{report.get('equal_opportunity_diff', 0):.3f}",
+                    help="Difference in True Positive Rates. Ideal: 0.0."
+                )
+                st.metric(
+                    label="Avg Abs Odds Diff",
+                    value=f"{report.get('avg_abs_odds_diff', 0):.3f}",
+                    help="Average of absolute difference in FPR and TPR."
+                )
+
+            with m3:
+                st.metric(
+                    label="False Positive Rate Diff",
+                    value=f"{report.get('false_positive_rate_diff', 0):.3f}",
+                    help="Difference in FPR (Unpriv - Priv)."
+                )
+                st.metric(
+                    label="False Negative Rate Diff",
+                    value=f"{report.get('false_negative_rate_diff', 0):.3f}",
+                    help="Difference in FNR (Unpriv - Priv)."
+                )
+            
+            # Display Visuals
+            from fairness_troops import visuals
+            
+            # Reconstruct y_pred
+            y_pred_series = pd.Series(
+                predictions, 
+                index=data.index, 
+                name="predictions"
+            )
+            
+            # Reconstruct y_true and sensitive_features
+            y_true = data[display_target_col]
+            sensitive_features = data[display_sensitive_col]
+            
+            st.subheader("Visual Analysis")
+            v1, v2 = st.columns(2)
+            with v1:
+                fig1 = visuals.plot_group_outcomes(
+                    y_pred_series,
+                    sensitive_features,
+                    title=f"Favorable Outcome Rate ({display_target_col}=1)"
+                )
+                st.pyplot(fig1)
+            with v2:
+                fig2 = visuals.plot_tpr_by_group(
+                    y_true,
+                    y_pred_series,
+                    sensitive_features,
+                    title=f"True Positive Rate by {display_sensitive_col}"
+                )
+                st.pyplot(fig2)
+                
+            # Display Explanations
+            st.subheader("🔍 Model Explainability")
+            import base64
+            
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                if perm_imp_b64:
+                    st.markdown("**Permutation Feature Importance**")
+                    st.markdown("Shows which features most affect model performance when shuffled.")
+                    perm_img = base64.b64decode(perm_imp_b64)
+                    st.image(perm_img, use_column_width=True)
+            
+            with c2:
+                if pdp_b64:
+                    st.markdown(f"**Partial Dependence Plot (PDP)**")
+                    st.markdown(f"Shows relationship between *{display_sensitive_col}* and predicted outcome.")
+                    pdp_img = base64.b64decode(pdp_b64)
+                    st.image(pdp_img, use_column_width=True)
+                
+            # --- 4. Mitigation ---
+            st.header("4. Mitigation Suggestions")
+            st.subheader("Pre-processing: Reweighting")
+            st.markdown(
+                "You can retrain your model using these `sample_weight` values "
+                "to mitigate bias. This technique gives more weight to "
+                "under-represented groups and outcomes."
+            )
+            
+            # Add weights to the original dataframe for context
+            data_with_weights = data.copy()
+            data_with_weights['sample_weight'] = mitigation_weights
+            
+            st.dataframe(data_with_weights.head())
+            
+            st.download_button(
+                label="Download All Sample Weights as CSV",
+                data=convert_df_to_csv(data_with_weights),
+                file_name="data_with_sample_weights.csv",
+                mime="text/csv",
+                key="csv_download"
+            )
 
 else:
     st.info(
