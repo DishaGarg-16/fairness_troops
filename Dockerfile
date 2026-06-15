@@ -27,4 +27,4 @@ COPY . .
 RUN uv pip install --system .
 
 # Make this the default CMD, but overrideable by docker-compose
-CMD ["python", "api/run_server.py"]
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"]

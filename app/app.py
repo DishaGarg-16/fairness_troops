@@ -143,6 +143,16 @@ if model and data is not None:
             all_columns,
             index=target_default_idx
         )
+    
+    # --- Frontend Validation: Target Column ---
+    target_unique_count = data[target_col].nunique()
+    target_valid = target_unique_count == 2
+    if not target_valid:
+        st.error(
+            f"⚠️ Target variable '{target_col}' has **{target_unique_count}** unique values. "
+            f"Fairness auditing requires a **binary** target (exactly 2 values, e.g., 0/1, Yes/No). "
+            f"Please select a different column."
+        )
         
     with col2:
         sensitive_options = [col for col in all_columns if col != target_col]
@@ -156,12 +166,26 @@ if model and data is not None:
             index=sensitive_default_idx
         )
         
+    # --- Frontend Validation: Sensitive Column ---
+    MAX_CATEGORICAL_UNIQUE_UI = 20
+    sensitive_unique_count = data[sensitive_col].nunique()
+    sensitive_valid = True
+    
+    if sensitive_unique_count > MAX_CATEGORICAL_UNIQUE_UI:
+        st.error(
+            f"⚠️ Sensitive attribute '{sensitive_col}' has **{sensitive_unique_count}** unique values. "
+            f"This looks like a continuous variable, not a categorical attribute. "
+            f"Please select a column with at most {MAX_CATEGORICAL_UNIQUE_UI} unique groups (e.g., gender, race)."
+        )
+        sensitive_valid = False
+    
     # Get unique values for the selected sensitive column
     if sensitive_col:
         unique_groups = data[sensitive_col].unique()
         
         if len(unique_groups) < 2:
             st.warning(f"Sensitive attribute '{sensitive_col}' must have at least 2 unique groups.")
+            sensitive_valid = False
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -207,7 +231,15 @@ if model and data is not None:
             st.session_state['config_privileged_group'] = privileged_group
             st.session_state['config_unprivileged_group'] = unprivileged_group
             
-            if st.button("Run Fairness Audit", type="primary"):
+            # Determine if we can run the audit
+            can_run_audit = target_valid and sensitive_valid
+            
+            if not can_run_audit:
+                st.warning(
+                    "🚫 Please fix the validation errors above before running the audit."
+                )
+            
+            if st.button("Run Fairness Audit", type="primary", disabled=not can_run_audit):
                 
                 import requests
                 import os
