@@ -119,6 +119,7 @@ sio.dump(model, "model.skops")
             # We might still want to load it into session state to unlock the "Configure Audit" UI
             # But we can assume it's valid if uploaded.
             st.session_state['model'] = "Uploaded Model" # Dummy value to satisfy check
+            st.query_params["mode"] = "audit"
             st.success("Model ready to upload!")
         except Exception as e:
             st.error(f"Error preparing model: {e}")
@@ -141,6 +142,7 @@ sio.dump(model, "model.skops")
                      'privileged_group', 'unprivileged_group']:
             if key in st.session_state:
                 del st.session_state[key]
+        st.query_params.clear()
         st.rerun()
 
     # Assign local variables from session state for use in main page
@@ -569,6 +571,7 @@ else:
             st.session_state['unprivileged_group'] = 'Female'
             
             st.success("✅ Adult Census Example loaded! Scroll up to configure and run the audit.")
+            st.query_params["mode"] = "demo"
             st.rerun()
         except FileNotFoundError:
             st.error(
